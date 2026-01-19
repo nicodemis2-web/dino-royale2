@@ -1179,7 +1179,17 @@ function DinoService:CreateDinosaurModel(dinoType, def, position)
 
     -- Setup model
     model.Name = "Dino_" .. dinoType .. "_" .. string.sub(tostring(os.clock()), -4)
-    model:SetPrimaryPartCFrame(CFrame.new(position))
+
+    -- Raycast to find proper terrain height
+    local terrainHeight = self:GetTerrainHeight(position)
+    local bodySize = def.modelSize or Vector3.new(4, 3, 8)
+    local spawnHeight = terrainHeight + bodySize.Y * 0.5 + 2  -- Half body height + small offset
+
+    local spawnPosition = Vector3.new(position.X, spawnHeight, position.Z)
+    model:SetPrimaryPartCFrame(CFrame.new(spawnPosition))
+
+    framework.Log("Debug", "Spawning %s at terrain height %.1f (spawn Y: %.1f)",
+        dinoType, terrainHeight, spawnHeight)
 
     -- Ensure Dinosaurs folder exists
     local dinoFolder = workspace:FindFirstChild("Dinosaurs")
@@ -1196,6 +1206,7 @@ end
 
 --[[
     Create a placeholder dinosaur model when no asset exists
+    Creates a visible, detailed dinosaur shape with proper materials
 
     @param dinoType string - Type of dinosaur
     @param def table - Dinosaur definition
@@ -1207,29 +1218,47 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
 
     local bodySize = def.modelSize or Vector3.new(4, 3, 8)
     local bodyColor = def.color or Color3.fromRGB(100, 100, 100)
+    local darkerColor = Color3.fromRGB(
+        math.floor(bodyColor.R * 255 * 0.7),
+        math.floor(bodyColor.G * 255 * 0.7),
+        math.floor(bodyColor.B * 255 * 0.7)
+    )
+    local lighterColor = Color3.fromRGB(
+        math.min(255, math.floor(bodyColor.R * 255 * 1.2)),
+        math.min(255, math.floor(bodyColor.G * 255 * 1.2)),
+        math.min(255, math.floor(bodyColor.B * 255 * 1.2))
+    )
 
-    -- Create body part (main dinosaur body)
+    -- Create body part (main dinosaur body) - VISIBLE
     local body = Instance.new("Part")
     body.Name = "Body"
     body.Anchored = false
     body.CanCollide = true
     body.Size = bodySize
     body.Color = bodyColor
-    body.Material = Enum.Material.SmoothPlastic
+    body.Material = Enum.Material.Fabric  -- More visible than SmoothPlastic
+    body.Transparency = 0  -- Ensure fully visible
+    body.CastShadow = true
     body.Parent = model
     model.PrimaryPart = body
 
-    -- Create head (sphere at front)
+    -- Create head (sphere at front) - VISIBLE
+    local headSize = bodySize.Y * 0.7
     local head = Instance.new("Part")
     head.Name = "Head"
     head.Shape = Enum.PartType.Ball
-    head.Size = Vector3.new(bodySize.Y * 0.8, bodySize.Y * 0.8, bodySize.Y * 0.8)
+    head.Size = Vector3.new(headSize, headSize, headSize)
     head.Color = bodyColor
-    head.Material = Enum.Material.SmoothPlastic
+    head.Material = Enum.Material.Fabric
+    head.Transparency = 0
     head.Anchored = false
     head.CanCollide = false
-    head.Position = body.Position + Vector3.new(0, bodySize.Y * 0.3, bodySize.Z * 0.5)
+    head.CastShadow = true
     head.Parent = model
+
+    -- Position head at front of body
+    local headOffset = CFrame.new(0, bodySize.Y * 0.2, bodySize.Z * 0.5 + headSize * 0.3)
+    head.CFrame = body.CFrame * headOffset
 
     -- Weld head to body
     local headWeld = Instance.new("WeldConstraint")
@@ -1237,37 +1266,185 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     headWeld.Part1 = head
     headWeld.Parent = model
 
-    -- Create tail (wedge at back)
-    local tail = Instance.new("WedgePart")
-    tail.Name = "Tail"
-    tail.Size = Vector3.new(bodySize.X * 0.5, bodySize.Y * 0.4, bodySize.Z * 0.6)
-    tail.Color = bodyColor
-    tail.Material = Enum.Material.SmoothPlastic
-    tail.Anchored = false
-    tail.CanCollide = false
-    tail.CFrame = body.CFrame * CFrame.new(0, -bodySize.Y * 0.2, -bodySize.Z * 0.7) * CFrame.Angles(0, math.pi, 0)
-    tail.Parent = model
+    -- Create snout/jaw
+    local snout = Instance.new("Part")
+    snout.Name = "Snout"
+    snout.Size = Vector3.new(headSize * 0.5, headSize * 0.4, headSize * 0.8)
+    snout.Color = darkerColor
+    snout.Material = Enum.Material.Fabric
+    snout.Transparency = 0
+    snout.Anchored = false
+    snout.CanCollide = false
+    snout.CastShadow = true
+    snout.CFrame = head.CFrame * CFrame.new(0, -headSize * 0.1, headSize * 0.5)
+    snout.Parent = model
 
-    -- Weld tail to body
-    local tailWeld = Instance.new("WeldConstraint")
-    tailWeld.Part0 = body
-    tailWeld.Part1 = tail
-    tailWeld.Parent = model
+    local snoutWeld = Instance.new("WeldConstraint")
+    snoutWeld.Part0 = head
+    snoutWeld.Part1 = snout
+    snoutWeld.Parent = model
+
+    -- Create eyes
+    local eyeSize = headSize * 0.15
+    for _, side in ipairs({-1, 1}) do
+        local eye = Instance.new("Part")
+        eye.Name = "Eye" .. (side == -1 and "L" or "R")
+        eye.Shape = Enum.PartType.Ball
+        eye.Size = Vector3.new(eyeSize, eyeSize, eyeSize)
+        eye.Color = Color3.new(1, 0.9, 0)  -- Yellow eyes
+        eye.Material = Enum.Material.Neon
+        eye.Transparency = 0
+        eye.Anchored = false
+        eye.CanCollide = false
+        eye.CFrame = head.CFrame * CFrame.new(side * headSize * 0.35, headSize * 0.15, headSize * 0.3)
+        eye.Parent = model
+
+        local eyeWeld = Instance.new("WeldConstraint")
+        eyeWeld.Part0 = head
+        eyeWeld.Part1 = eye
+        eyeWeld.Parent = model
+    end
+
+    -- Create tail (multiple segments for better look)
+    local tailSegments = 3
+    local prevPart = body
+    for i = 1, tailSegments do
+        local segmentSize = Vector3.new(
+            bodySize.X * (0.8 - i * 0.15),
+            bodySize.Y * (0.6 - i * 0.12),
+            bodySize.Z * 0.25
+        )
+        local tail = Instance.new("Part")
+        tail.Name = "Tail" .. i
+        tail.Size = segmentSize
+        tail.Color = i % 2 == 0 and darkerColor or bodyColor
+        tail.Material = Enum.Material.Fabric
+        tail.Transparency = 0
+        tail.Anchored = false
+        tail.CanCollide = false
+        tail.CastShadow = true
+
+        local tailOffset = CFrame.new(0, -bodySize.Y * 0.1 * i, -bodySize.Z * 0.3 - (i - 1) * segmentSize.Z * 0.8)
+        tail.CFrame = body.CFrame * tailOffset
+        tail.Parent = model
+
+        local tailWeld = Instance.new("WeldConstraint")
+        tailWeld.Part0 = prevPart
+        tailWeld.Part1 = tail
+        tailWeld.Parent = model
+        prevPart = tail
+    end
+
+    -- Create legs (4 legs for most dinosaurs, 2 for bipedal)
+    local isBipedal = dinoType == "raptor" or dinoType == "trex" or dinoType == "dilophosaurus" or dinoType == "carnotaurus"
+    local legCount = isBipedal and 2 or 4
+    local legPositions = isBipedal
+        and {{-0.3, -0.5, 0}, {0.3, -0.5, 0}}
+        or {{-0.35, -0.5, 0.3}, {0.35, -0.5, 0.3}, {-0.35, -0.5, -0.3}, {0.35, -0.5, -0.3}}
+
+    for i, pos in ipairs(legPositions) do
+        local legHeight = bodySize.Y * 0.8
+        local leg = Instance.new("Part")
+        leg.Name = "Leg" .. i
+        leg.Size = Vector3.new(bodySize.X * 0.2, legHeight, bodySize.Z * 0.15)
+        leg.Color = darkerColor
+        leg.Material = Enum.Material.Fabric
+        leg.Transparency = 0
+        leg.Anchored = false
+        leg.CanCollide = false
+        leg.CastShadow = true
+        leg.CFrame = body.CFrame * CFrame.new(
+            pos[1] * bodySize.X,
+            pos[2] * bodySize.Y - legHeight * 0.4,
+            pos[3] * bodySize.Z
+        )
+        leg.Parent = model
+
+        local legWeld = Instance.new("WeldConstraint")
+        legWeld.Part0 = body
+        legWeld.Part1 = leg
+        legWeld.Parent = model
+
+        -- Add foot
+        local foot = Instance.new("Part")
+        foot.Name = "Foot" .. i
+        foot.Size = Vector3.new(bodySize.X * 0.25, bodySize.Y * 0.1, bodySize.Z * 0.2)
+        foot.Color = darkerColor
+        foot.Material = Enum.Material.Fabric
+        foot.Transparency = 0
+        foot.Anchored = false
+        foot.CanCollide = false
+        foot.CastShadow = true
+        foot.CFrame = leg.CFrame * CFrame.new(0, -legHeight * 0.5, bodySize.Z * 0.05)
+        foot.Parent = model
+
+        local footWeld = Instance.new("WeldConstraint")
+        footWeld.Part0 = leg
+        footWeld.Part1 = foot
+        footWeld.Parent = model
+    end
+
+    -- Add spines/ridges on back for certain dinosaurs
+    if dinoType == "spinosaurus" or dinoType == "triceratops" then
+        local spineCount = 5
+        for i = 1, spineCount do
+            local spine = Instance.new("WedgePart")
+            spine.Name = "Spine" .. i
+            local spineHeight = bodySize.Y * (dinoType == "spinosaurus" and 0.8 or 0.3)
+            spine.Size = Vector3.new(bodySize.X * 0.1, spineHeight, bodySize.Z * 0.1)
+            spine.Color = lighterColor
+            spine.Material = Enum.Material.Fabric
+            spine.Transparency = 0
+            spine.Anchored = false
+            spine.CanCollide = false
+            spine.CastShadow = true
+            spine.CFrame = body.CFrame * CFrame.new(0, bodySize.Y * 0.5 + spineHeight * 0.4, bodySize.Z * (0.3 - i * 0.15))
+            spine.Parent = model
+
+            local spineWeld = Instance.new("WeldConstraint")
+            spineWeld.Part0 = body
+            spineWeld.Part1 = spine
+            spineWeld.Parent = model
+        end
+    end
+
+    -- Add horns for triceratops
+    if dinoType == "triceratops" then
+        for _, offset in ipairs({{-0.25, 0.3, 0.4}, {0.25, 0.3, 0.4}, {0, 0.1, 0.6}}) do
+            local horn = Instance.new("Part")
+            horn.Name = "Horn"
+            horn.Size = Vector3.new(headSize * 0.1, headSize * 0.6, headSize * 0.1)
+            horn.Color = Color3.fromRGB(240, 230, 200)
+            horn.Material = Enum.Material.Fabric
+            horn.Transparency = 0
+            horn.Anchored = false
+            horn.CanCollide = false
+            horn.CastShadow = true
+            horn.CFrame = head.CFrame * CFrame.new(offset[1] * headSize, offset[2] * headSize, offset[3] * headSize) * CFrame.Angles(math.rad(-30), 0, 0)
+            horn.Parent = model
+
+            local hornWeld = Instance.new("WeldConstraint")
+            hornWeld.Part0 = head
+            hornWeld.Part1 = horn
+            hornWeld.Parent = model
+        end
+    end
 
     -- Add name billboard above dinosaur
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "NameBillboard"
-    billboard.Size = UDim2.new(0, 100, 0, 30)
-    billboard.StudsOffset = Vector3.new(0, bodySize.Y + 3, 0)
+    billboard.Size = UDim2.new(0, 120, 0, 30)
+    billboard.StudsOffset = Vector3.new(0, bodySize.Y + 5, 0)
     billboard.Adornee = body
-    billboard.AlwaysOnTop = true
+    billboard.AlwaysOnTop = false  -- Don't show through walls
+    billboard.MaxDistance = 100
     billboard.Parent = body
 
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Size = UDim2.new(1, 0, 1, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = def.name or dinoType:upper()
-    nameLabel.TextColor3 = Color3.new(1, 0.2, 0.2)
+    nameLabel.TextColor3 = Color3.new(1, 0.3, 0.3)
     nameLabel.TextStrokeTransparency = 0
     nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     nameLabel.Font = Enum.Font.GothamBold
@@ -1277,22 +1454,25 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     -- Add health bar billboard
     local healthBillboard = Instance.new("BillboardGui")
     healthBillboard.Name = "HealthBillboard"
-    healthBillboard.Size = UDim2.new(0, 80, 0, 10)
-    healthBillboard.StudsOffset = Vector3.new(0, bodySize.Y + 1.5, 0)
+    healthBillboard.Size = UDim2.new(0, 100, 0, 12)
+    healthBillboard.StudsOffset = Vector3.new(0, bodySize.Y + 3, 0)
     healthBillboard.Adornee = body
-    healthBillboard.AlwaysOnTop = true
+    healthBillboard.AlwaysOnTop = false
+    healthBillboard.MaxDistance = 100
     healthBillboard.Parent = body
 
     local healthBg = Instance.new("Frame")
     healthBg.Size = UDim2.new(1, 0, 1, 0)
-    healthBg.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-    healthBg.BorderSizePixel = 0
+    healthBg.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+    healthBg.BorderSizePixel = 2
+    healthBg.BorderColor3 = Color3.new(0, 0, 0)
     healthBg.Parent = healthBillboard
 
     local healthBar = Instance.new("Frame")
     healthBar.Name = "HealthBar"
-    healthBar.Size = UDim2.new(1, 0, 1, 0)
-    healthBar.BackgroundColor3 = Color3.new(0.2, 0.8, 0.2)
+    healthBar.Size = UDim2.new(1, -4, 1, -4)
+    healthBar.Position = UDim2.new(0, 2, 0, 2)
+    healthBar.BackgroundColor3 = Color3.new(0.2, 0.9, 0.2)
     healthBar.BorderSizePixel = 0
     healthBar.Parent = healthBg
 
@@ -1301,15 +1481,17 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     humanoid.MaxHealth = def.health
     humanoid.Health = def.health
     humanoid.WalkSpeed = def.speed
+    humanoid.HipHeight = bodySize.Y * 0.3  -- Proper ground clearance
     humanoid.Parent = model
 
-    -- Create root part for humanoid
+    -- Create root part for humanoid (at ground level)
     local rootPart = Instance.new("Part")
     rootPart.Name = "HumanoidRootPart"
     rootPart.Transparency = 1
     rootPart.CanCollide = false
     rootPart.Size = Vector3.new(2, 2, 1)
     rootPart.CFrame = body.CFrame
+    rootPart.Anchored = false
     rootPart.Parent = model
 
     -- Weld body to root
@@ -1318,9 +1500,32 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     weld.Part1 = body
     weld.Parent = model
 
-    framework.Log("Debug", "Created placeholder model for %s at size %s", dinoType, tostring(bodySize))
+    framework.Log("Debug", "Created visible placeholder model for %s at size %s", dinoType, tostring(bodySize))
 
     return model
+end
+
+--[[
+    Get terrain height at a position using raycast
+    @param position Vector3 - XZ position to check
+    @return number - Y height of terrain at position
+]]
+function DinoService:GetTerrainHeight(position)
+    local rayOrigin = Vector3.new(position.X, 500, position.Z)
+    local rayDirection = Vector3.new(0, -1000, 0)
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Dinosaurs")}
+
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+    if result then
+        return result.Position.Y
+    end
+
+    -- Fallback to default height
+    return 10
 end
 
 --=============================================================================
