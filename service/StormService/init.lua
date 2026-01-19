@@ -135,6 +135,7 @@ end
 
 --[[
     Start the storm progression
+    In test mode, storm is much slower and has a larger initial radius
 ]]
 function StormService:StartStorm()
     if isActive then
@@ -145,8 +146,13 @@ function StormService:StartStorm()
     isActive = true
     currentPhase = 0
 
-    -- Reset to initial state
-    currentRadius = gameConfig.Storm.visualRadius
+    -- Reset to initial state - use larger radius in test mode
+    local baseRadius = gameConfig.Storm.visualRadius
+    if gameConfig.TestMode and gameConfig.TestMode.enabled then
+        baseRadius = baseRadius * 1.5  -- 50% larger in test mode
+        framework.Log("Info", "Storm: Test mode - using larger radius: %d", baseRadius)
+    end
+    currentRadius = baseRadius
 
     -- Get map center from MapService (instead of hardcoded 0,0,0)
     local mapCenter = Vector3.new(0, 0, 0)  -- Fallback
@@ -303,10 +309,16 @@ end
 
 --[[
     Apply damage to players outside the safe zone
+    Damage is reduced in test mode for easier exploration
 ]]
 function StormService:ApplyStormDamage()
     local damage = self:GetCurrentDamage()
     if damage <= 0 then return end
+
+    -- Reduce damage in test mode
+    if gameConfig.TestMode and gameConfig.TestMode.enabled then
+        damage = damage * 0.25  -- 25% damage in test mode for easier exploration
+    end
 
     for _, player in ipairs(Players:GetPlayers()) do
         local character = player.Character

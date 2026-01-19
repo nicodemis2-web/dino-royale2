@@ -1230,9 +1230,11 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     )
 
     -- Create body part (main dinosaur body) - VISIBLE
+    -- Body is ANCHORED to prevent falling through terrain
+    -- Movement is handled by CFrame updates in AI system
     local body = Instance.new("Part")
     body.Name = "Body"
-    body.Anchored = false
+    body.Anchored = true  -- ANCHORED to prevent physics issues
     body.CanCollide = true
     body.Size = bodySize
     body.Color = bodyColor

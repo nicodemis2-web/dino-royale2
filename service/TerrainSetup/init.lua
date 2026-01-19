@@ -376,7 +376,8 @@ function TerrainSetup:GeneratePOIBuilding(parent, poiName, position, size, terra
 end
 
 --[[
-    Generate a multi-floor building with interior rooms
+    Generate a multi-floor building with ACCESSIBLE interior rooms
+    Creates walls with actual door openings (not blocked by door parts)
 ]]
 function TerrainSetup:GenerateMultiFloorBuilding(parent, name, position, size, baseY, config)
     local floors = config.floors or 2
@@ -386,6 +387,8 @@ function TerrainSetup:GenerateMultiFloorBuilding(parent, name, position, size, b
     local buildingDepth = size * 0.5
     local color = config.color or Color3.fromRGB(200, 190, 170)
     local roofColor = config.roofColor or Color3.fromRGB(100, 80, 60)
+    local doorWidth = 8
+    local doorHeight = 9
 
     local buildingModel = Instance.new("Model")
     buildingModel.Name = name .. "_Building"
@@ -405,34 +408,161 @@ function TerrainSetup:GenerateMultiFloorBuilding(parent, name, position, size, b
         floorPart.Parent = buildingModel
         table.insert(generatedParts, floorPart)
 
-        -- Walls with windows
-        local walls = {
-            {offset = Vector3.new(0, floorHeight/2, buildingDepth/2), size = Vector3.new(buildingWidth, floorHeight, wallThickness), windows = true},
-            {offset = Vector3.new(0, floorHeight/2, -buildingDepth/2), size = Vector3.new(buildingWidth, floorHeight, wallThickness), windows = true},
-            {offset = Vector3.new(buildingWidth/2, floorHeight/2, 0), size = Vector3.new(wallThickness, floorHeight, buildingDepth), windows = true},
-            {offset = Vector3.new(-buildingWidth/2, floorHeight/2, 0), size = Vector3.new(wallThickness, floorHeight, buildingDepth), windows = true},
-        }
+        -- FRONT WALL (with door opening on ground floor)
+        -- Split into sections to create door gap
+        if floor == 1 then
+            -- Left section of front wall
+            local leftWall = Instance.new("Part")
+            leftWall.Name = "FrontWallLeft"
+            leftWall.Size = Vector3.new((buildingWidth - doorWidth) / 2, floorHeight, wallThickness)
+            leftWall.Position = Vector3.new(
+                position.X - (buildingWidth + doorWidth) / 4,
+                floorY + floorHeight / 2,
+                position.Z + buildingDepth / 2
+            )
+            leftWall.Anchored = true
+            leftWall.Material = Enum.Material.Concrete
+            leftWall.Color = color
+            leftWall.Parent = buildingModel
+            table.insert(generatedParts, leftWall)
 
-        for i, wallData in ipairs(walls) do
-            local wall = Instance.new("Part")
-            wall.Name = "Wall" .. floor .. "_" .. i
-            wall.Size = wallData.size
-            wall.Position = Vector3.new(position.X, floorY, position.Z) + wallData.offset
-            wall.Anchored = true
-            wall.Material = Enum.Material.Concrete
-            wall.Color = color
-            wall.Parent = buildingModel
-            table.insert(generatedParts, wall)
+            -- Right section of front wall
+            local rightWall = Instance.new("Part")
+            rightWall.Name = "FrontWallRight"
+            rightWall.Size = Vector3.new((buildingWidth - doorWidth) / 2, floorHeight, wallThickness)
+            rightWall.Position = Vector3.new(
+                position.X + (buildingWidth + doorWidth) / 4,
+                floorY + floorHeight / 2,
+                position.Z + buildingDepth / 2
+            )
+            rightWall.Anchored = true
+            rightWall.Material = Enum.Material.Concrete
+            rightWall.Color = color
+            rightWall.Parent = buildingModel
+            table.insert(generatedParts, rightWall)
 
-            -- Add windows
-            if wallData.windows then
-                self:AddWindows(wall, buildingModel)
-            end
+            -- Top section above door
+            local topWall = Instance.new("Part")
+            topWall.Name = "FrontWallTop"
+            topWall.Size = Vector3.new(doorWidth, floorHeight - doorHeight, wallThickness)
+            topWall.Position = Vector3.new(
+                position.X,
+                floorY + doorHeight + (floorHeight - doorHeight) / 2,
+                position.Z + buildingDepth / 2
+            )
+            topWall.Anchored = true
+            topWall.Material = Enum.Material.Concrete
+            topWall.Color = color
+            topWall.Parent = buildingModel
+            table.insert(generatedParts, topWall)
+
+            -- Door frame (decorative, no collision)
+            local doorFrame = Instance.new("Part")
+            doorFrame.Name = "DoorFrame"
+            doorFrame.Size = Vector3.new(doorWidth + 1, doorHeight + 0.5, 0.5)
+            doorFrame.Position = Vector3.new(position.X, floorY + doorHeight / 2, position.Z + buildingDepth / 2 + 1)
+            doorFrame.Anchored = true
+            doorFrame.CanCollide = false
+            doorFrame.Material = Enum.Material.Metal
+            doorFrame.Color = Color3.fromRGB(60, 60, 60)
+            doorFrame.Parent = buildingModel
+            table.insert(generatedParts, doorFrame)
+        else
+            -- Full front wall for upper floors
+            local frontWall = Instance.new("Part")
+            frontWall.Name = "FrontWall" .. floor
+            frontWall.Size = Vector3.new(buildingWidth, floorHeight, wallThickness)
+            frontWall.Position = Vector3.new(position.X, floorY + floorHeight / 2, position.Z + buildingDepth / 2)
+            frontWall.Anchored = true
+            frontWall.Material = Enum.Material.Concrete
+            frontWall.Color = color
+            frontWall.Parent = buildingModel
+            table.insert(generatedParts, frontWall)
+            self:AddWindows(frontWall, buildingModel)
         end
 
-        -- Add doorway on ground floor
-        if floor == 1 then
-            self:AddDoorway(buildingModel, Vector3.new(position.X, floorY, position.Z + buildingDepth/2), 8, floorHeight * 0.7)
+        -- BACK WALL (solid with windows)
+        local backWall = Instance.new("Part")
+        backWall.Name = "BackWall" .. floor
+        backWall.Size = Vector3.new(buildingWidth, floorHeight, wallThickness)
+        backWall.Position = Vector3.new(position.X, floorY + floorHeight / 2, position.Z - buildingDepth / 2)
+        backWall.Anchored = true
+        backWall.Material = Enum.Material.Concrete
+        backWall.Color = color
+        backWall.Parent = buildingModel
+        table.insert(generatedParts, backWall)
+        self:AddWindows(backWall, buildingModel)
+
+        -- SIDE WALLS (with secondary door on ground floor)
+        for side = -1, 1, 2 do
+            local sideName = side == -1 and "Left" or "Right"
+
+            if floor == 1 then
+                -- Split side wall for secondary entrance
+                local sideDoorWidth = 5
+                local sideDoorHeight = 7
+
+                -- Front section
+                local frontSection = Instance.new("Part")
+                frontSection.Name = sideName .. "WallFront"
+                frontSection.Size = Vector3.new(wallThickness, floorHeight, (buildingDepth - sideDoorWidth) / 2)
+                frontSection.Position = Vector3.new(
+                    position.X + side * buildingWidth / 2,
+                    floorY + floorHeight / 2,
+                    position.Z + (buildingDepth + sideDoorWidth) / 4
+                )
+                frontSection.Anchored = true
+                frontSection.Material = Enum.Material.Concrete
+                frontSection.Color = color
+                frontSection.Parent = buildingModel
+                table.insert(generatedParts, frontSection)
+
+                -- Back section
+                local backSection = Instance.new("Part")
+                backSection.Name = sideName .. "WallBack"
+                backSection.Size = Vector3.new(wallThickness, floorHeight, (buildingDepth - sideDoorWidth) / 2)
+                backSection.Position = Vector3.new(
+                    position.X + side * buildingWidth / 2,
+                    floorY + floorHeight / 2,
+                    position.Z - (buildingDepth + sideDoorWidth) / 4
+                )
+                backSection.Anchored = true
+                backSection.Material = Enum.Material.Concrete
+                backSection.Color = color
+                backSection.Parent = buildingModel
+                table.insert(generatedParts, backSection)
+
+                -- Top section above side door
+                local topSection = Instance.new("Part")
+                topSection.Name = sideName .. "WallTop"
+                topSection.Size = Vector3.new(wallThickness, floorHeight - sideDoorHeight, sideDoorWidth)
+                topSection.Position = Vector3.new(
+                    position.X + side * buildingWidth / 2,
+                    floorY + sideDoorHeight + (floorHeight - sideDoorHeight) / 2,
+                    position.Z
+                )
+                topSection.Anchored = true
+                topSection.Material = Enum.Material.Concrete
+                topSection.Color = color
+                topSection.Parent = buildingModel
+                table.insert(generatedParts, topSection)
+            else
+                -- Full side wall for upper floors
+                local sideWall = Instance.new("Part")
+                sideWall.Name = sideName .. "Wall" .. floor
+                sideWall.Size = Vector3.new(wallThickness, floorHeight, buildingDepth)
+                sideWall.Position = Vector3.new(
+                    position.X + side * buildingWidth / 2,
+                    floorY + floorHeight / 2,
+                    position.Z
+                )
+                sideWall.Anchored = true
+                sideWall.Material = Enum.Material.Concrete
+                sideWall.Color = color
+                sideWall.Parent = buildingModel
+                table.insert(generatedParts, sideWall)
+                self:AddWindows(sideWall, buildingModel)
+            end
         end
 
         -- Add interior furniture
@@ -590,7 +720,8 @@ function TerrainSetup:GenerateDome(parent, name, position, size, baseY, config)
 end
 
 --[[
-    Generate a warehouse
+    Generate a warehouse with ACCESSIBLE interior
+    Creates hollow structure with large door opening
 ]]
 function TerrainSetup:GenerateWarehouse(parent, name, position, size, baseY, config)
     local warehouseModel = Instance.new("Model")
@@ -599,39 +730,143 @@ function TerrainSetup:GenerateWarehouse(parent, name, position, size, baseY, con
     local width = size * 0.7
     local depth = size * 0.5
     local height = 15
+    local wallThickness = 2
+    local doorWidth = width * 0.4
+    local doorHeight = height * 0.8
+    local color = config.color or Color3.fromRGB(150, 140, 130)
 
-    -- Main structure
-    local building = Instance.new("Part")
-    building.Name = "MainBuilding"
-    building.Size = Vector3.new(width, height, depth)
-    building.Position = Vector3.new(position.X, baseY + height/2, position.Z)
-    building.Anchored = true
-    building.Material = Enum.Material.Metal
-    building.Color = config.color or Color3.fromRGB(150, 140, 130)
-    building.Parent = warehouseModel
-    table.insert(generatedParts, building)
+    -- Floor
+    local floor = Instance.new("Part")
+    floor.Name = "Floor"
+    floor.Size = Vector3.new(width, 1, depth)
+    floor.Position = Vector3.new(position.X, baseY, position.Z)
+    floor.Anchored = true
+    floor.Material = Enum.Material.Concrete
+    floor.Color = Color3.fromRGB(100, 100, 100)
+    floor.Parent = warehouseModel
+    table.insert(generatedParts, floor)
 
-    -- Large door
-    local door = Instance.new("Part")
-    door.Name = "Door"
-    door.Size = Vector3.new(width * 0.4, height * 0.8, 1)
-    door.Position = Vector3.new(position.X, baseY + height * 0.4, position.Z + depth/2)
-    door.Anchored = true
-    door.Material = Enum.Material.Metal
-    door.Color = Color3.fromRGB(100, 100, 110)
-    door.Parent = warehouseModel
-    table.insert(generatedParts, door)
+    -- FRONT WALL (with large door opening)
+    -- Left section
+    local frontLeft = Instance.new("Part")
+    frontLeft.Name = "FrontWallLeft"
+    frontLeft.Size = Vector3.new((width - doorWidth) / 2, height, wallThickness)
+    frontLeft.Position = Vector3.new(
+        position.X - (width + doorWidth) / 4,
+        baseY + height / 2,
+        position.Z + depth / 2
+    )
+    frontLeft.Anchored = true
+    frontLeft.Material = Enum.Material.Metal
+    frontLeft.Color = color
+    frontLeft.Parent = warehouseModel
+    table.insert(generatedParts, frontLeft)
 
-    -- Crates outside
-    for i = 1, 8 do
+    -- Right section
+    local frontRight = Instance.new("Part")
+    frontRight.Name = "FrontWallRight"
+    frontRight.Size = Vector3.new((width - doorWidth) / 2, height, wallThickness)
+    frontRight.Position = Vector3.new(
+        position.X + (width + doorWidth) / 4,
+        baseY + height / 2,
+        position.Z + depth / 2
+    )
+    frontRight.Anchored = true
+    frontRight.Material = Enum.Material.Metal
+    frontRight.Color = color
+    frontRight.Parent = warehouseModel
+    table.insert(generatedParts, frontRight)
+
+    -- Top section above door
+    local frontTop = Instance.new("Part")
+    frontTop.Name = "FrontWallTop"
+    frontTop.Size = Vector3.new(doorWidth, height - doorHeight, wallThickness)
+    frontTop.Position = Vector3.new(
+        position.X,
+        baseY + doorHeight + (height - doorHeight) / 2,
+        position.Z + depth / 2
+    )
+    frontTop.Anchored = true
+    frontTop.Material = Enum.Material.Metal
+    frontTop.Color = color
+    frontTop.Parent = warehouseModel
+    table.insert(generatedParts, frontTop)
+
+    -- Door frame (decorative)
+    local doorFrame = Instance.new("Part")
+    doorFrame.Name = "DoorFrame"
+    doorFrame.Size = Vector3.new(doorWidth + 2, doorHeight + 1, 0.5)
+    doorFrame.Position = Vector3.new(position.X, baseY + doorHeight / 2, position.Z + depth / 2 + 1)
+    doorFrame.Anchored = true
+    doorFrame.CanCollide = false
+    doorFrame.Material = Enum.Material.Metal
+    doorFrame.Color = Color3.fromRGB(80, 80, 90)
+    doorFrame.Parent = warehouseModel
+    table.insert(generatedParts, doorFrame)
+
+    -- BACK WALL (solid)
+    local backWall = Instance.new("Part")
+    backWall.Name = "BackWall"
+    backWall.Size = Vector3.new(width, height, wallThickness)
+    backWall.Position = Vector3.new(position.X, baseY + height / 2, position.Z - depth / 2)
+    backWall.Anchored = true
+    backWall.Material = Enum.Material.Metal
+    backWall.Color = color
+    backWall.Parent = warehouseModel
+    table.insert(generatedParts, backWall)
+
+    -- SIDE WALLS
+    for side = -1, 1, 2 do
+        local sideWall = Instance.new("Part")
+        sideWall.Name = (side == -1 and "Left" or "Right") .. "Wall"
+        sideWall.Size = Vector3.new(wallThickness, height, depth)
+        sideWall.Position = Vector3.new(position.X + side * width / 2, baseY + height / 2, position.Z)
+        sideWall.Anchored = true
+        sideWall.Material = Enum.Material.Metal
+        sideWall.Color = color
+        sideWall.Parent = warehouseModel
+        table.insert(generatedParts, sideWall)
+    end
+
+    -- ROOF
+    local roof = Instance.new("Part")
+    roof.Name = "Roof"
+    roof.Size = Vector3.new(width + 2, 1, depth + 2)
+    roof.Position = Vector3.new(position.X, baseY + height + 0.5, position.Z)
+    roof.Anchored = true
+    roof.Material = Enum.Material.Metal
+    roof.Color = Color3.fromRGB(80, 80, 80)
+    roof.Parent = warehouseModel
+    table.insert(generatedParts, roof)
+
+    -- Interior crates
+    for i = 1, 6 do
         local crate = Instance.new("Part")
-        crate.Name = "Crate" .. i
+        crate.Name = "InteriorCrate" .. i
+        local crateSize = math.random(2, 4)
+        crate.Size = Vector3.new(crateSize, crateSize, crateSize)
+        crate.Position = Vector3.new(
+            position.X + (math.random() - 0.5) * (width - 10),
+            baseY + 1 + crateSize / 2,
+            position.Z + (math.random() - 0.5) * (depth - 10)
+        )
+        crate.Anchored = true
+        crate.Material = Enum.Material.Wood
+        crate.Color = Color3.fromRGB(139, 90, 43)
+        crate.Parent = warehouseModel
+        table.insert(generatedParts, crate)
+    end
+
+    -- Exterior crates
+    for i = 1, 4 do
+        local crate = Instance.new("Part")
+        crate.Name = "ExteriorCrate" .. i
         local crateSize = math.random(3, 6)
         crate.Size = Vector3.new(crateSize, crateSize, crateSize)
         crate.Position = Vector3.new(
-            position.X + math.random(-size/3, size/3),
-            baseY + crateSize/2,
-            position.Z + size/3 + math.random(5, 15)
+            position.X + (math.random() - 0.5) * size * 0.6,
+            baseY + crateSize / 2,
+            position.Z + depth / 2 + 10 + math.random(0, 10)
         )
         crate.Anchored = true
         crate.Material = Enum.Material.Wood
@@ -766,7 +1001,7 @@ function TerrainSetup:GenerateIndustrialBuilding(parent, name, position, size, b
 end
 
 --[[
-    Generate a generic building
+    Generate a generic building with ACCESSIBLE interior
 ]]
 function TerrainSetup:GenerateGenericBuilding(parent, name, position, size, baseY, config)
     local buildingModel = Instance.new("Model")
@@ -774,20 +1009,114 @@ function TerrainSetup:GenerateGenericBuilding(parent, name, position, size, base
 
     local width = math.random(15, 25)
     local depth = math.random(15, 25)
-    local height = math.random(10, 20)
+    local height = math.random(10, 18)
+    local wallThickness = 2
+    local doorWidth = 6
+    local doorHeight = 8
+    local color = config.color or Color3.fromRGB(150, 150, 150)
 
-    local building = Instance.new("Part")
-    building.Name = "MainBuilding"
-    building.Size = Vector3.new(width, height, depth)
-    building.Position = Vector3.new(position.X, baseY + height/2, position.Z)
-    building.Anchored = true
-    building.Material = Enum.Material.Concrete
-    building.Color = config.color or Color3.fromRGB(150, 150, 150)
-    building.Parent = buildingModel
-    table.insert(generatedParts, building)
+    -- Floor
+    local floor = Instance.new("Part")
+    floor.Name = "Floor"
+    floor.Size = Vector3.new(width, 1, depth)
+    floor.Position = Vector3.new(position.X, baseY, position.Z)
+    floor.Anchored = true
+    floor.Material = Enum.Material.Concrete
+    floor.Color = Color3.fromRGB(80, 80, 80)
+    floor.Parent = buildingModel
+    table.insert(generatedParts, floor)
 
-    self:AddWindows(building, buildingModel)
-    self:AddDoorway(buildingModel, Vector3.new(position.X, baseY, position.Z + depth/2), 6, 8)
+    -- FRONT WALL (with door opening)
+    local frontLeft = Instance.new("Part")
+    frontLeft.Name = "FrontWallLeft"
+    frontLeft.Size = Vector3.new((width - doorWidth) / 2, height, wallThickness)
+    frontLeft.Position = Vector3.new(
+        position.X - (width + doorWidth) / 4,
+        baseY + height / 2,
+        position.Z + depth / 2
+    )
+    frontLeft.Anchored = true
+    frontLeft.Material = Enum.Material.Concrete
+    frontLeft.Color = color
+    frontLeft.Parent = buildingModel
+    table.insert(generatedParts, frontLeft)
+
+    local frontRight = Instance.new("Part")
+    frontRight.Name = "FrontWallRight"
+    frontRight.Size = Vector3.new((width - doorWidth) / 2, height, wallThickness)
+    frontRight.Position = Vector3.new(
+        position.X + (width + doorWidth) / 4,
+        baseY + height / 2,
+        position.Z + depth / 2
+    )
+    frontRight.Anchored = true
+    frontRight.Material = Enum.Material.Concrete
+    frontRight.Color = color
+    frontRight.Parent = buildingModel
+    table.insert(generatedParts, frontRight)
+
+    local frontTop = Instance.new("Part")
+    frontTop.Name = "FrontWallTop"
+    frontTop.Size = Vector3.new(doorWidth, height - doorHeight, wallThickness)
+    frontTop.Position = Vector3.new(
+        position.X,
+        baseY + doorHeight + (height - doorHeight) / 2,
+        position.Z + depth / 2
+    )
+    frontTop.Anchored = true
+    frontTop.Material = Enum.Material.Concrete
+    frontTop.Color = color
+    frontTop.Parent = buildingModel
+    table.insert(generatedParts, frontTop)
+
+    -- Door frame
+    local doorFrame = Instance.new("Part")
+    doorFrame.Name = "DoorFrame"
+    doorFrame.Size = Vector3.new(doorWidth + 1, doorHeight + 0.5, 0.5)
+    doorFrame.Position = Vector3.new(position.X, baseY + doorHeight / 2, position.Z + depth / 2 + 1)
+    doorFrame.Anchored = true
+    doorFrame.CanCollide = false
+    doorFrame.Material = Enum.Material.Metal
+    doorFrame.Color = Color3.fromRGB(60, 60, 60)
+    doorFrame.Parent = buildingModel
+    table.insert(generatedParts, doorFrame)
+
+    -- BACK WALL (solid)
+    local backWall = Instance.new("Part")
+    backWall.Name = "BackWall"
+    backWall.Size = Vector3.new(width, height, wallThickness)
+    backWall.Position = Vector3.new(position.X, baseY + height / 2, position.Z - depth / 2)
+    backWall.Anchored = true
+    backWall.Material = Enum.Material.Concrete
+    backWall.Color = color
+    backWall.Parent = buildingModel
+    table.insert(generatedParts, backWall)
+    self:AddWindows(backWall, buildingModel)
+
+    -- SIDE WALLS (solid)
+    for side = -1, 1, 2 do
+        local sideWall = Instance.new("Part")
+        sideWall.Name = (side == -1 and "Left" or "Right") .. "Wall"
+        sideWall.Size = Vector3.new(wallThickness, height, depth)
+        sideWall.Position = Vector3.new(position.X + side * width / 2, baseY + height / 2, position.Z)
+        sideWall.Anchored = true
+        sideWall.Material = Enum.Material.Concrete
+        sideWall.Color = color
+        sideWall.Parent = buildingModel
+        table.insert(generatedParts, sideWall)
+        self:AddWindows(sideWall, buildingModel)
+    end
+
+    -- ROOF
+    local roof = Instance.new("Part")
+    roof.Name = "Roof"
+    roof.Size = Vector3.new(width + 2, 1, depth + 2)
+    roof.Position = Vector3.new(position.X, baseY + height + 0.5, position.Z)
+    roof.Anchored = true
+    roof.Material = Enum.Material.Slate
+    roof.Color = Color3.fromRGB(80, 70, 60)
+    roof.Parent = buildingModel
+    table.insert(generatedParts, roof)
 
     buildingModel.Parent = parent
 end

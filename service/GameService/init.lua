@@ -272,16 +272,27 @@ function GameService:MatchPhase()
         dinoService:StartSpawning()
         print("[DinoRoyale] Dinosaur spawning started")
 
-        -- In test mode, spawn an immediate test dinosaur nearby
+        -- In test mode, spawn immediate test dinosaurs nearby
+        -- Wait a moment for terrain to fully generate
         if isTestMode then
             task.defer(function()
-                task.wait(2)  -- Wait for player to spawn
-                local testPos = Vector3.new(50, 10, 50)
-                local dino = dinoService:SpawnDinosaur("raptor", testPos)
-                if dino then
-                    print("[DinoRoyale] TEST MODE: Spawned test raptor at " .. tostring(testPos))
-                else
-                    warn("[DinoRoyale] TEST MODE: Failed to spawn test raptor")
+                task.wait(3)  -- Wait for terrain generation and player spawn
+
+                -- Spawn multiple test dinosaurs at various locations
+                local testSpawns = {
+                    {type = "raptor", pos = Vector3.new(50, 0, 50)},
+                    {type = "trex", pos = Vector3.new(-80, 0, 60)},
+                    {type = "triceratops", pos = Vector3.new(100, 0, -40)},
+                }
+
+                for _, spawn in ipairs(testSpawns) do
+                    -- DinoService:SpawnDinosaur will raycast for proper height
+                    local dino = dinoService:SpawnDinosaur(spawn.type, spawn.pos)
+                    if dino then
+                        print("[DinoRoyale] TEST MODE: Spawned " .. spawn.type .. " near " .. tostring(spawn.pos))
+                    else
+                        warn("[DinoRoyale] TEST MODE: Failed to spawn " .. spawn.type)
+                    end
                 end
             end)
         end
