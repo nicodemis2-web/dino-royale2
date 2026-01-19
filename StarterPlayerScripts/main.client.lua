@@ -114,15 +114,29 @@ Remotes.OnEvent("GameStateChanged", function(newState, oldState)
     if newState == "Lobby" then
         hud:SetEnabled(true)
         -- Show lobby UI
+        hud:UpdateLobbyUI({
+            currentPlayers = #game:GetService("Players"):GetPlayers(),
+            requiredPlayers = 60,
+            canStart = false,
+        })
+        hud:HideDeathScreen()
+        hud:HideVictoryScreen()
+        hud:HideSpectatorUI()
     elseif newState == "Starting" then
-        -- Show countdown UI
+        -- Show countdown UI (lobby UI updates via CountdownUpdate)
     elseif newState == "Dropping" then
-        -- Show drop UI / disable shooting
+        -- Hide lobby UI, show drop UI
+        hud:HideLobbyUI()
     elseif newState == "Match" then
-        -- Full HUD enabled
+        -- Full HUD enabled, hide any overlays
         hud:SetEnabled(true)
+        hud:HideLobbyUI()
     elseif newState == "Ending" then
-        -- Show results
+        -- Show results (handled by VictoryDeclared event)
+    elseif newState == "Cleanup" then
+        -- Reset all screens for next match
+        hud:HideBossHealth()
+        hud:HideDinoHealth()
     end
 end)
 
@@ -133,7 +147,7 @@ Remotes.OnEvent("MatchStarting", function(countdown)
 end)
 
 -- Player eliminated
-Remotes.OnEvent("PlayerEliminated", function(victimId, killerId)
+Remotes.OnEvent("PlayerEliminated", function(victimId, killerId, placement, killerName)
     -- Add to kill feed
     hud:AddKillFeedItem(victimId, killerId)
 
@@ -141,19 +155,41 @@ Remotes.OnEvent("PlayerEliminated", function(victimId, killerId)
     if victimId == player.UserId then
         clientState.isAlive = false
         print("[DinoRoyale Client] You were eliminated!")
-        -- TODO: Show death screen / spectate options
+        -- Show death screen with killer info and placement
+        hud:ShowDeathScreen(killerName or "Unknown", placement)
     end
 end)
 
 -- Victory declared
-Remotes.OnEvent("VictoryDeclared", function(winner)
+Remotes.OnEvent("VictoryDeclared", function(winner, stats)
     print("[DinoRoyale Client] Victory!")
-    -- TODO: Show victory/defeat screen based on whether we won
+    -- Show victory or defeat screen based on whether we won
+    if winner == player.UserId or (winner and winner.squadId and winner.squadId == clientState.squad) then
+        hud:ShowVictoryScreen(stats)
+    end
 end)
 
 -- Players alive count update
 Remotes.OnEvent("UpdatePlayersAlive", function(playersAlive, teamsAlive)
     hud:UpdatePlayerCount(playersAlive)
+end)
+
+-- Lobby status update (player count, timer, can start)
+Remotes.OnEvent("LobbyStatusUpdate", function(data)
+    hud:UpdateLobbyUI(data)
+end)
+
+-- Countdown update
+Remotes.OnEvent("CountdownUpdate", function(seconds)
+    -- Update lobby timer if in lobby state
+    if clientState.gameState == "Lobby" or clientState.gameState == "Starting" then
+        hud:UpdateLobbyUI({
+            currentPlayers = #game:GetService("Players"):GetPlayers(),
+            requiredPlayers = 60,
+            timeRemaining = seconds,
+            canStart = true,
+        })
+    end
 end)
 
 --=============================================================================
@@ -229,9 +265,12 @@ Remotes.OnEvent("DinoSpawned", function(data)
     print(string.format("[DinoRoyale Client] Dinosaur spawned: %s at %s", data.type, tostring(data.position)))
 end)
 
--- Dinosaur damaged
-Remotes.OnEvent("DinoDamaged", function(dinoId, damage, currentHealth, maxHealth)
-    -- TODO: Show damage number, update health bar if targeting
+-- Dinosaur damaged - show health bar for damaged dinos
+Remotes.OnEvent("DinoDamaged", function(dinoId, damage, currentHealth, maxHealth, dinoName)
+    -- Update dinosaur health bar display
+    if dinoName then
+        hud:UpdateDinoHealth(dinoName, currentHealth, maxHealth)
+    end
 end)
 
 -- Dinosaur died
@@ -245,6 +284,25 @@ end)
 -- Dinosaur attack
 Remotes.OnEvent("DinoAttack", function(data)
     -- Play attack sound/visual at location
+end)
+
+-- ============== BOSS EVENTS ==============
+
+-- Boss spawned - show boss health bar
+Remotes.OnEvent("BossSpawned", function(bossId, bossName, health, maxHealth)
+    print(string.format("[DinoRoyale Client] Boss spawned: %s", bossName))
+    hud:ShowBossHealth(bossName, health, maxHealth, 1)
+end)
+
+-- Boss phase changed - update health bar and phase indicator
+Remotes.OnEvent("BossPhaseChanged", function(bossId, phase, health, maxHealth, bossName)
+    hud:ShowBossHealth(bossName or "Boss", health, maxHealth, phase)
+end)
+
+-- Boss died - hide health bar
+Remotes.OnEvent("BossDied", function(bossId, killerUserId)
+    print("[DinoRoyale Client] Boss defeated!")
+    hud:HideBossHealth()
 end)
 
 --=============================================================================

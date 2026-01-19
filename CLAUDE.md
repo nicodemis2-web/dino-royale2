@@ -269,6 +269,12 @@ Client-side HUD components.
 - Squad teammate status
 - Damage indicators
 - Storm warning
+- Dinosaur health bars (targeted dinos)
+- Boss health bar with phase indicator
+- Lobby UI (player count, timer, mode)
+- Death screen (placement, killer, spectate button)
+- Victory screen (stats display)
+- Spectator UI (prev/next player controls)
 
 Key methods:
 - `DinoHUD:Initialize()` - Create HUD
@@ -278,6 +284,18 @@ Key methods:
 - `DinoHUD:SelectWeaponSlot(slot)` - Highlight selected slot
 - `DinoHUD:ShowStormWarning(delay, phase)` - Show warning
 - `DinoHUD:ShowDamageIndicator(direction)` - Show damage direction
+- `DinoHUD:UpdateDinoHealth(name, current, max)` - Show dino health bar
+- `DinoHUD:ShowBossHealth(name, current, max, phase)` - Show boss health bar
+- `DinoHUD:HideBossHealth()` - Hide boss health bar
+- `DinoHUD:UpdateLobbyUI(data)` - Update lobby screen
+- `DinoHUD:HideLobbyUI()` - Hide lobby screen
+- `DinoHUD:ShowDeathScreen(killerName, placement)` - Show death overlay
+- `DinoHUD:HideDeathScreen()` - Hide death overlay
+- `DinoHUD:ShowVictoryScreen(stats)` - Show victory overlay
+- `DinoHUD:HideVictoryScreen()` - Hide victory overlay
+- `DinoHUD:ShowSpectatorUI(playerName)` - Show spectator controls
+- `DinoHUD:UpdateSpectatorTarget(playerName)` - Update spectated player
+- `DinoHUD:HideSpectatorUI()` - Hide spectator controls
 
 ## Network Events (Remotes.lua)
 

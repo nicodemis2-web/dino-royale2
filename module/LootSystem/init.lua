@@ -75,11 +75,29 @@ end
 
 --[[
     Load loot spawn points from map
+    First tries MapService for POI-based spawn points, then falls back to workspace folders
 ]]
 function LootSystem:LoadSpawnPoints()
     spawnPoints = {}
 
-    -- Ground loot points
+    -- First try to get spawn points from MapService (POI-based loot)
+    local mapService = framework:GetService("MapService")
+    if mapService and mapService.GetLootSpawnPoints then
+        local mapSpawns = mapService:GetLootSpawnPoints()
+        if mapSpawns and #mapSpawns > 0 then
+            for _, spawn in ipairs(mapSpawns) do
+                table.insert(spawnPoints, {
+                    position = spawn.position or spawn,
+                    type = spawn.type or "any",
+                    rarity = spawn.rarity or nil,
+                    biome = spawn.biome or nil,
+                })
+            end
+            framework.Log("Info", "Loaded %d spawn points from MapService", #spawnPoints)
+        end
+    end
+
+    -- Also check workspace for additional ground loot points
     local groundFolder = workspace:FindFirstChild("LootSpawnPoints")
     if groundFolder then
         for _, point in ipairs(groundFolder:GetChildren()) do
@@ -93,7 +111,7 @@ function LootSystem:LoadSpawnPoints()
         end
     end
 
-    -- Chest locations
+    -- Chest locations from workspace
     local chestFolder = workspace:FindFirstChild("ChestSpawnPoints")
     if chestFolder then
         for _, point in ipairs(chestFolder:GetChildren()) do
@@ -102,6 +120,21 @@ function LootSystem:LoadSpawnPoints()
                     position = point.Position,
                     opened = false,
                     model = nil,
+                })
+            end
+        end
+    end
+
+    -- Also get chest locations from MapService POIs
+    if mapService and mapService.GetPOIChestLocations then
+        local poiChests = mapService:GetPOIChestLocations()
+        if poiChests then
+            for _, chestPos in ipairs(poiChests) do
+                table.insert(chests, {
+                    position = chestPos.position or chestPos,
+                    opened = false,
+                    model = nil,
+                    rarity = chestPos.rarity or "rare", -- POI chests have better loot
                 })
             end
         end
