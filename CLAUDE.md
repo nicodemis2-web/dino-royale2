@@ -260,6 +260,33 @@ Key methods:
 - `PlayerInventory:ResetInventory(player)` - Clear inventory
 - `PlayerInventory:SyncInventory(player)` - Send to client
 
+### MapAssets
+
+Asset loading and management system for terrain, buildings, vegetation, and dinosaur models.
+
+**Asset Categories:**
+- `Terrain` - Large-scale terrain maps
+- `Buildings` - POI structures
+- `Vegetation` - Trees, rocks, plants by biome
+- `Dinosaurs` - Dinosaur models with stats
+
+Key methods:
+- `MapAssets:Initialize()` - Setup folders and load manifest
+- `MapAssets:LoadAsset(assetId)` - Load asset from Creator Store
+- `MapAssets:PreloadAssets(assetIds)` - Batch preload for performance
+- `MapAssets:SpawnBuilding(buildingType, position, rotation)` - Place building
+- `MapAssets:SpawnPOIBuildings(poiName, centerPosition)` - Setup full POI
+- `MapAssets:SpawnVegetation(vegetationType, center, radius, count)` - Add decorations
+- `MapAssets:SpawnDinoModel(dinoType, position)` - Create dinosaur model
+- `MapAssets:GetDinoConfig(dinoType)` - Get dinosaur stats
+- `MapAssets:GetManifest()` - Access AssetManifest
+- `MapAssets:ClearAll()` - Cleanup spawned assets
+
+**Recommended Assets (from docs/MAP_INTEGRATION_PLAN.md):**
+- Jungle Terrain: Game ID `4564507466` (DevForum)
+- Low Poly Pack: Asset ID `9492405836` (Creator Store)
+- Rigged Dinosaurs: Asset ID `102772249876319` (Creator Store)
+
 ### DinoHUD
 
 Client-side HUD components.
@@ -443,7 +470,12 @@ dino-royale2/
 │   ├── DinoHUD/init.lua            # Client HUD (~700 lines)
 │   ├── LootSystem/init.lua         # Loot (~965 lines)
 │   ├── SquadSystem/init.lua        # Teams (~570 lines)
-│   └── PlayerInventory/init.lua    # Inventory (~580 lines)
+│   ├── PlayerInventory/init.lua    # Inventory (~580 lines)
+│   └── MapAssets/                  # Asset loading system
+│       ├── init.lua                # Asset management (~320 lines)
+│       └── AssetManifest.lua       # Asset registry (~300 lines)
+├── docs/
+│   └── MAP_INTEGRATION_PLAN.md     # Terrain & asset integration guide
 ├── src/shared/
 │   ├── GameConfig.lua              # All configuration (~660 lines)
 │   ├── Remotes.lua                 # Network events (~240 lines)
