@@ -1396,4 +1396,229 @@ function DinoHUD:HideSpectatorUI()
     end
 end
 
+--=============================================================================
+-- HIT MARKER AND COMBAT FEEDBACK
+--=============================================================================
+
+--[[
+    Show hit marker on crosshair when dealing damage
+    @param isHeadshot boolean - Whether the hit was a headshot (shows different marker)
+]]
+function DinoHUD:ShowHitMarker(isHeadshot)
+    -- Hit markers provide instant feedback when shots connect
+    -- Headshots show a different color/style marker
+    if not screenGui then return end
+
+    local marker = Instance.new("ImageLabel")
+    marker.Name = "HitMarker"
+    marker.Size = UDim2.new(0, 40, 0, 40)
+    marker.Position = UDim2.new(0.5, -20, 0.5, -20)
+    marker.BackgroundTransparency = 1
+    marker.Image = "rbxassetid://0"  -- Placeholder - would use actual hit marker image
+    marker.ImageColor3 = isHeadshot and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(255, 255, 255)
+    marker.Parent = screenGui
+
+    -- Fade out and destroy after short duration
+    task.spawn(function()
+        task.wait(0.15)
+        if marker and marker.Parent then
+            marker:Destroy()
+        end
+    end)
+end
+
+--=============================================================================
+-- REVIVE PROGRESS
+--=============================================================================
+
+--[[
+    Show revive progress bar
+    @param duration number - Total revive time in seconds
+    @param isBeingRevived boolean - True if local player is being revived, false if reviving
+]]
+function DinoHUD:ShowReviveProgress(duration, isBeingRevived)
+    if not screenGui then return end
+
+    -- Remove existing revive progress if any
+    local existing = screenGui:FindFirstChild("ReviveProgress")
+    if existing then existing:Destroy() end
+
+    local container = Instance.new("Frame")
+    container.Name = "ReviveProgress"
+    container.Size = UDim2.new(0, 200, 0, 30)
+    container.Position = isBeingRevived
+        and UDim2.new(0.5, -100, 0.6, 0)   -- Center-bottom for being revived
+        or UDim2.new(0.5, -100, 0.45, 0)   -- Near crosshair for reviving
+    container.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    container.BorderSizePixel = 0
+    container.Parent = screenGui
+
+    local progress = Instance.new("Frame")
+    progress.Name = "ProgressFill"
+    progress.Size = UDim2.new(0, 0, 1, 0)
+    progress.BackgroundColor3 = isBeingRevived
+        and Color3.fromRGB(0, 200, 100)    -- Green when being revived
+        or Color3.fromRGB(100, 150, 255)   -- Blue when reviving
+    progress.BorderSizePixel = 0
+    progress.Parent = container
+
+    local label = Instance.new("TextLabel")
+    label.Name = "Label"
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = isBeingRevived and "BEING REVIVED..." or "REVIVING..."
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Parent = container
+
+    -- Animate progress bar
+    task.spawn(function()
+        local startTime = tick()
+        while container and container.Parent and (tick() - startTime) < duration do
+            local elapsed = tick() - startTime
+            local ratio = math.clamp(elapsed / duration, 0, 1)
+            progress.Size = UDim2.new(ratio, 0, 1, 0)
+            task.wait(0.03)
+        end
+        if container and container.Parent then
+            container:Destroy()
+        end
+    end)
+end
+
+--=============================================================================
+-- INVENTORY AND MAP SCREENS
+--=============================================================================
+
+--[[
+    Toggle full inventory screen overlay
+    Shows all weapons, ammo counts, consumables, and equipment
+]]
+function DinoHUD:ToggleInventoryScreen()
+    if not screenGui then return end
+
+    local existing = screenGui:FindFirstChild("InventoryScreen")
+    if existing then
+        existing:Destroy()
+        return
+    end
+
+    -- Create inventory overlay
+    local inventory = Instance.new("Frame")
+    inventory.Name = "InventoryScreen"
+    inventory.Size = UDim2.new(0.6, 0, 0.7, 0)
+    inventory.Position = UDim2.new(0.2, 0, 0.15, 0)
+    inventory.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    inventory.BackgroundTransparency = 0.1
+    inventory.BorderSizePixel = 0
+    inventory.Parent = screenGui
+
+    -- Add corner radius
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = inventory
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.BackgroundTransparency = 1
+    title.Text = "INVENTORY"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 24
+    title.Parent = inventory
+
+    -- Close hint
+    local closeHint = Instance.new("TextLabel")
+    closeHint.Size = UDim2.new(1, 0, 0, 20)
+    closeHint.Position = UDim2.new(0, 0, 1, -25)
+    closeHint.BackgroundTransparency = 1
+    closeHint.Text = "Press TAB to close"
+    closeHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+    closeHint.Font = Enum.Font.Gotham
+    closeHint.TextSize = 12
+    closeHint.Parent = inventory
+
+    -- Inventory content would be populated from PlayerInventory data
+    -- This is a placeholder structure - actual implementation would
+    -- request inventory data and display weapon slots, ammo, consumables
+end
+
+--[[
+    Toggle fullscreen map overlay
+    Shows terrain, storm circle, POIs, and teammate positions
+]]
+function DinoHUD:ToggleFullscreenMap()
+    if not screenGui then return end
+
+    local existing = screenGui:FindFirstChild("FullscreenMap")
+    if existing then
+        existing:Destroy()
+        return
+    end
+
+    -- Create fullscreen map overlay
+    local mapScreen = Instance.new("Frame")
+    mapScreen.Name = "FullscreenMap"
+    mapScreen.Size = UDim2.new(0.8, 0, 0.8, 0)
+    mapScreen.Position = UDim2.new(0.1, 0, 0.1, 0)
+    mapScreen.BackgroundColor3 = Color3.fromRGB(20, 30, 20)
+    mapScreen.BackgroundTransparency = 0.05
+    mapScreen.BorderSizePixel = 0
+    mapScreen.Parent = screenGui
+
+    -- Add corner radius
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mapScreen
+
+    -- Map title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 40)
+    title.BackgroundTransparency = 1
+    title.Text = "DINO ISLAND"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 24
+    title.Parent = mapScreen
+
+    -- Map area (would show actual terrain/POI markers)
+    local mapArea = Instance.new("Frame")
+    mapArea.Name = "MapArea"
+    mapArea.Size = UDim2.new(0.9, 0, 0.85, 0)
+    mapArea.Position = UDim2.new(0.05, 0, 0.1, 0)
+    mapArea.BackgroundColor3 = Color3.fromRGB(60, 80, 60)
+    mapArea.BorderSizePixel = 0
+    mapArea.Parent = mapScreen
+
+    -- Storm circle indicator (would be positioned based on StormService data)
+    local stormCircle = Instance.new("Frame")
+    stormCircle.Name = "StormCircle"
+    stormCircle.Size = UDim2.new(0.5, 0, 0.5, 0)
+    stormCircle.Position = UDim2.new(0.25, 0, 0.25, 0)
+    stormCircle.BackgroundTransparency = 0.7
+    stormCircle.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
+    stormCircle.Parent = mapArea
+
+    local stormCorner = Instance.new("UICorner")
+    stormCorner.CornerRadius = UDim.new(0.5, 0)
+    stormCorner.Parent = stormCircle
+
+    -- Close hint
+    local closeHint = Instance.new("TextLabel")
+    closeHint.Size = UDim2.new(1, 0, 0, 20)
+    closeHint.Position = UDim2.new(0, 0, 1, -25)
+    closeHint.BackgroundTransparency = 1
+    closeHint.Text = "Press M to close"
+    closeHint.TextColor3 = Color3.fromRGB(150, 150, 150)
+    closeHint.Font = Enum.Font.Gotham
+    closeHint.TextSize = 12
+    closeHint.Parent = mapScreen
+
+    -- Player marker would be added based on current position
+    -- Teammate markers would be added for squad mode
+    -- POI labels would be positioned based on GameConfig.Map.pois
+end
+
 return DinoHUD

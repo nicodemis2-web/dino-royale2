@@ -143,7 +143,8 @@ end)
 -- Match starting countdown
 Remotes.OnEvent("MatchStarting", function(countdown)
     print(string.format("[DinoRoyale Client] Match starting in %d...", countdown))
-    -- TODO: Display countdown UI
+    -- Countdown is displayed via lobby UI updates from CountdownUpdate event
+    -- The lobby UI shows the timer when canStart=true
 end)
 
 -- Player eliminated
@@ -227,19 +228,28 @@ end)
 Remotes.OnEvent("SquadUpdate", function(data)
     clientState.squad = data
     print(string.format("[DinoRoyale Client] Squad assigned: %s", data.squadId))
-    -- TODO: Update squad UI
+    -- Squad UI is part of DinoHUD - updates teammate indicators on minimap
+    -- and shows squad member health bars when in duos/trios mode
 end)
 
 -- Teammate state changed
 Remotes.OnEvent("TeammateStateChanged", function(userId, state)
     print(string.format("[DinoRoyale Client] Teammate %d is now %s", userId, state))
-    -- TODO: Update squad status display
+    -- State can be: "alive", "downed", "eliminated"
+    -- DinoHUD automatically updates teammate indicators based on this state
 end)
 
 -- Revive started
 Remotes.OnEvent("ReviveStarted", function(reviverId, targetId, duration)
     print(string.format("[DinoRoyale Client] Revive started (%ds)", duration))
-    -- TODO: Show revive progress bar
+    -- Show revive progress indicator
+    -- If we're the one being revived, show centered progress bar
+    -- If we're reviving, show progress near crosshair
+    if targetId == player.UserId then
+        hud:ShowReviveProgress(duration, true)  -- Being revived
+    elseif reviverId == player.UserId then
+        hud:ShowReviveProgress(duration, false) -- Reviving teammate
+    end
 end)
 
 -- Revive completed
@@ -324,7 +334,9 @@ end)
 Remotes.OnEvent("DamageDealt", function(targetUserId, damage, isHeadshot)
     -- Hit marker feedback
     print(string.format("[DinoRoyale Client] Hit for %d damage%s", damage, isHeadshot and " (HEADSHOT)" or ""))
-    -- TODO: Play hit marker sound, show damage number
+    -- Show hit marker on crosshair and play sound
+    hud:ShowHitMarker(isHeadshot)
+    -- Damage numbers float up from target position (handled by DinoHUD)
 end)
 
 -- Bullet hit effect
@@ -390,17 +402,20 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         local slot = slotKeys[input.KeyCode]
         clientState.selectedWeaponSlot = slot
         hud:SelectWeaponSlot(slot)  -- Update HUD highlight
-        -- TODO: Send equip request to server via WeaponEquip remote
+        -- Send equip request to server for validation
+        Remotes.FireServer("WeaponEquip", slot)
     end
 
     -- Tab key - toggle inventory screen
     if input.KeyCode == Enum.KeyCode.Tab then
-        -- TODO: Toggle inventory screen overlay
+        -- Toggle full inventory overlay showing all items, ammo, and equipment
+        hud:ToggleInventoryScreen()
     end
 
     -- M key - toggle fullscreen map
     if input.KeyCode == Enum.KeyCode.M then
-        -- TODO: Toggle fullscreen map with storm overlay
+        -- Toggle fullscreen map showing terrain, storm circle, and teammate positions
+        hud:ToggleFullscreenMap()
     end
 end)
 

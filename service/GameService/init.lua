@@ -655,7 +655,16 @@ function GameService:OnPlayerJoined(player)
 
     -- If match in progress, make them spectator
     if currentState == GameService.States.MATCH then
-        -- TODO: Enable spectator mode
+        -- Late-joiners during active match become spectators
+        -- Notify client to enable spectator mode via remote
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes then
+            local spectateRemote = remotes:FindFirstChild("EnableSpectatorMode")
+            if spectateRemote then
+                spectateRemote:FireClient(player, true)
+            end
+        end
+        framework.Log("Info", "Player %s joined mid-match, enabling spectator mode", player.Name)
     end
 end
 
