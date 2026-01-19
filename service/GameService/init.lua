@@ -4,6 +4,13 @@
 
     States:
         LOBBY -> STARTING -> DROPPING -> MATCH -> ENDING -> CLEANUP -> LOBBY
+
+    Test Mode Support:
+        When GameConfig.TestMode.enabled is true:
+        - Single player can start matches (minPlayersToStart = 1)
+        - Auto-starts after short delay (autoStartDelay = 3 seconds)
+        - Victory conditions disabled (explore freely)
+        - Starting weapons given automatically
 ]]
 
 local Players = game:GetService("Players")
@@ -47,8 +54,9 @@ local events = {
 ]]
 function GameService:Initialize()
     -- Get framework reference
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
     -- Create remote events
     self:SetupRemotes()
@@ -138,14 +146,27 @@ end
 
 --[[
     Lobby Phase - Wait for players
+    Supports TestMode for single-player testing
 ]]
 function GameService:LobbyPhase()
     local playerCount = #Players:GetPlayers()
-    local minPlayers = gameConfig.Match.minPlayersToStart
-    local waitTime = gameConfig.Match.lobbyWaitTime
+
+    -- Use TestMode settings if enabled
+    local isTestMode = gameConfig.TestMode and gameConfig.TestMode.enabled
+    local minPlayers = isTestMode and gameConfig.TestMode.minPlayersToStart or gameConfig.Match.minPlayersToStart
+    local waitTime = isTestMode and gameConfig.TestMode.autoStartDelay or gameConfig.Match.lobbyWaitTime
     local timer = waitTime
 
-    framework.Log("Info", "Lobby phase started, waiting for %d players", minPlayers)
+    if isTestMode then
+        framework.Log("Info", "TEST MODE: Lobby phase started, waiting for %d player(s)", minPlayers)
+        print("[DinoRoyale] ========================================")
+        print("[DinoRoyale] TEST MODE ENABLED")
+        print("[DinoRoyale] - Min players: " .. minPlayers)
+        print("[DinoRoyale] - Auto-start delay: " .. waitTime .. "s")
+        print("[DinoRoyale] ========================================")
+    else
+        framework.Log("Info", "Lobby phase started, waiting for %d players", minPlayers)
+    end
 
     while currentState == GameService.States.LOBBY do
         playerCount = #Players:GetPlayers()
@@ -155,6 +176,11 @@ function GameService:LobbyPhase()
             if timer <= 0 then
                 self:SetState(GameService.States.STARTING)
                 return
+            end
+
+            -- In test mode, show countdown more frequently
+            if isTestMode and math.floor(timer) ~= math.floor(timer + 0.1) then
+                print(string.format("[DinoRoyale] TEST MODE: Starting in %.0f seconds...", math.ceil(timer)))
             end
         else
             timer = waitTime -- Reset timer if not enough players
@@ -214,19 +240,35 @@ end
 
 --[[
     Match Phase - Main gameplay
+    Supports TestMode for single-player testing
 ]]
 function GameService:MatchPhase()
+    local isTestMode = gameConfig.TestMode and gameConfig.TestMode.enabled
+
+    if isTestMode then
+        print("[DinoRoyale] ========================================")
+        print("[DinoRoyale] TEST MODE: Match started!")
+        print("[DinoRoyale] - Explore the map freely")
+        print("[DinoRoyale] - Victory conditions disabled")
+        print("[DinoRoyale] ========================================")
+    end
+
     framework.Log("Info", "Match started!")
 
-    -- Start storm service
+    -- Give starting weapons in test mode
+    if isTestMode and gameConfig.TestMode.startingWeapons then
+        self:GiveTestModeWeapons()
+    end
+
+    -- Start storm service (unless disabled in test mode)
     local stormService = framework:GetService("StormService")
-    if stormService then
+    if stormService and not gameConfig.Debug.noStorm then
         stormService:StartStorm()
     end
 
-    -- Start dinosaur service
+    -- Start dinosaur service (unless disabled)
     local dinoService = framework:GetService("DinoService")
-    if dinoService then
+    if dinoService and not gameConfig.Debug.noDinosaurs then
         dinoService:StartSpawning()
     end
 
@@ -234,18 +276,24 @@ function GameService:MatchPhase()
     while currentState == GameService.States.MATCH do
         local aliveCounts = self:GetAliveCount()
 
-        -- Check victory conditions
-        local winner = self:CheckVictoryConditions(aliveCounts)
-        if winner then
-            self:DeclareVictory(winner)
-            self:SetState(GameService.States.ENDING)
-            return
+        -- In test mode, skip victory conditions (single player can explore freely)
+        if not isTestMode then
+            -- Check victory conditions
+            local winner = self:CheckVictoryConditions(aliveCounts)
+            if winner then
+                self:DeclareVictory(winner)
+                self:SetState(GameService.States.ENDING)
+                return
+            end
         end
 
         -- Check match timeout
         local matchDuration = tick() - matchStartTime
         if matchDuration >= gameConfig.Match.matchMaxDuration then
             framework.Log("Info", "Match timed out!")
+            if isTestMode then
+                print("[DinoRoyale] TEST MODE: Match time limit reached. Restarting...")
+            end
             self:SetState(GameService.States.ENDING)
             return
         end
@@ -254,6 +302,31 @@ function GameService:MatchPhase()
         self:BroadcastAliveCount(aliveCounts)
 
         task.wait(0.5)
+    end
+end
+
+--[[
+    Give starting weapons for test mode
+]]
+function GameService:GiveTestModeWeapons()
+    local playerInventory = framework:GetModule("PlayerInventory")
+    local weaponService = framework:GetService("WeaponService")
+
+    if not playerInventory or not weaponService then
+        framework.Log("Warn", "Cannot give test mode weapons - missing services")
+        return
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        -- Give a basic assault rifle
+        playerInventory:GiveWeapon(player, "assault_rifle_common")
+        -- Give some ammo
+        playerInventory:GiveAmmo(player, "medium", 120)
+        -- Give a medkit
+        playerInventory:GiveConsumable(player, "medkit", 2)
+
+        framework.Log("Debug", "Gave test mode loadout to %s", player.Name)
+        print(string.format("[DinoRoyale] TEST MODE: Gave starting weapons to %s", player.Name))
     end
 end
 

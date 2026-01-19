@@ -12,13 +12,21 @@
     2. Framework - Service locator pattern (dependency injection container)
     3. Core Services - Game systems (GameService, MapService, StormService, etc.)
     4. Modules - Support systems (LootSystem, SquadSystem, PlayerInventory)
-    5. Player Events - Handle player join/leave lifecycle
+    5. Terrain Generation - Procedural map creation
+    6. Player Events - Handle player join/leave lifecycle
+
+    Rojo Path Mappings (from default.project.json):
+    - framework/     -> ReplicatedStorage.Framework
+    - service/       -> ReplicatedStorage.Service
+    - module/        -> ReplicatedStorage.Module
+    - src/shared/    -> ReplicatedStorage.Shared
 
     Architecture Notes:
     - All game logic runs server-side (server-authoritative model)
     - Clients receive state via RemoteEvents defined in src/shared/Remotes.lua
     - Services are loosely coupled via framework:GetService() calls
     - GameService is the source of truth for match state
+    - TestMode (GameConfig.TestMode.enabled) allows single-player testing
 
     =========================================================================
 ]]
@@ -35,16 +43,18 @@ local Players = game:GetService("Players")
 print("[DinoRoyale] Server starting...")
 
 -- Step 1: Setup Remotes first (required by all services)
-local Remotes = require(ServerScriptService.Parent["dino-royale2"].src.shared.Remotes)
+-- Rojo maps src/shared to ReplicatedStorage.Shared
+local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 Remotes.Setup()
 print("[DinoRoyale] Remotes initialized")
 
 -- Step 2: Get Framework reference
-local framework = require(ServerScriptService.Parent["dino-royale2"].framework)
+-- Rojo maps framework to ReplicatedStorage.Framework
+local framework = require(ReplicatedStorage:WaitForChild("Framework"))
 print("[DinoRoyale] Framework loaded")
 
 -- Step 3: Get GameConfig
-local GameConfig = require(ServerScriptService.Parent["dino-royale2"].src.shared.GameConfig)
+local GameConfig = require(ReplicatedStorage.Shared:WaitForChild("GameConfig"))
 print("[DinoRoyale] GameConfig loaded")
 
 --=============================================================================

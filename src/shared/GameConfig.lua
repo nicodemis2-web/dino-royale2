@@ -656,4 +656,35 @@ GameConfig.Debug = {
     spawnAllWeapons = false,
 }
 
+--=============================================================================
+-- TEST MODE CONFIGURATION
+-- Single-player testing settings
+--=============================================================================
+
+GameConfig.TestMode = {
+    enabled = true,                -- Enable test mode (set to false for production)
+
+    -- Match overrides
+    minPlayersToStart = 1,         -- Allow single-player start
+    autoStartDelay = 3,            -- Seconds before auto-starting match
+    skipLobbyCountdown = true,     -- Skip the normal lobby countdown
+
+    -- Gameplay overrides
+    reducedStormSpeed = true,      -- Slower storm for exploration
+    stormSpeedMultiplier = 0.25,   -- 25% of normal storm speed
+    startingWeapons = true,        -- Give player weapons on spawn
+    startingHealth = 100,          -- Starting health (can increase for testing)
+    startingShield = 50,           -- Starting shield
+
+    -- Dinosaur testing
+    spawnDinosImmediately = false, -- Spawn dinos right away (not waiting for match phase)
+    reducedDinoCount = true,       -- Fewer dinosaurs for performance
+    dinoCountMultiplier = 0.25,    -- 25% of normal dino count
+
+    -- Debug helpers
+    teleportCommands = true,       -- Allow /tp commands in chat
+    spawnCommands = true,          -- Allow /spawn commands in chat
+    showTestHUD = true,            -- Show extra debug info on HUD
+}
+
 return GameConfig

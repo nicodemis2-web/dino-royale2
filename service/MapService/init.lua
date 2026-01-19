@@ -530,8 +530,9 @@ local EVENT_DEFINITIONS = {
 ]]
 function MapService:Initialize()
     -- Get framework reference for logging and service access
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
     -- Initialize map data structure
     mapData = {

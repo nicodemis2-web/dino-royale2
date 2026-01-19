@@ -30,7 +30,8 @@ local function initialize()
     end
 
     -- Load the framework
-    local Framework = require(script.Parent.Parent.Parent.Parent.framework)
+    -- Rojo maps framework/ to ReplicatedStorage.Framework
+    local Framework = require(ReplicatedStorage:WaitForChild("Framework"))
 
     -- Wait for framework to be ready
     Framework:WaitForReady()

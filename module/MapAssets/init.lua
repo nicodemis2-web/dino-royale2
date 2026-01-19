@@ -60,7 +60,8 @@ local spawnedInstances = {}
     Creates workspace folders and loads the asset manifest
 ]]
 function MapAssets:Initialize()
-    framework = require(script.Parent.Parent.framework)
+    -- Rojo maps to ReplicatedStorage.Framework
+    framework = require(script.Parent.Parent.Framework)
     AssetManifest = require(script.AssetManifest)
 
     -- Create workspace folders for organization

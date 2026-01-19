@@ -97,8 +97,9 @@ local gameConfig = nil          -- Game configuration (stack limits, etc.)
     Initialize the PlayerInventory module
 ]]
 function PlayerInventory:Initialize()
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
     -- Setup remote event handlers
     self:SetupRemotes()

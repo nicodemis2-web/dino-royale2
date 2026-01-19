@@ -56,8 +56,9 @@ end
 print("[DinoRoyale Client] Remotes ready")
 
 -- Get shared modules
-local GameConfig = require(ReplicatedStorage.Parent["dino-royale2"].src.shared.GameConfig)
-local Remotes = require(ReplicatedStorage.Parent["dino-royale2"].src.shared.Remotes)
+-- Rojo maps src/shared to ReplicatedStorage.Shared
+local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local Remotes = require(ReplicatedStorage.Shared:WaitForChild("Remotes"))
 print("[DinoRoyale Client] Shared modules loaded")
 
 --=============================================================================
@@ -65,7 +66,8 @@ print("[DinoRoyale Client] Shared modules loaded")
 --=============================================================================
 
 -- Initialize the DinoHUD
-local DinoHUD = require(ReplicatedStorage.Parent["dino-royale2"].module.DinoHUD)
+-- Rojo maps module to ReplicatedStorage.Module
+local DinoHUD = require(ReplicatedStorage:WaitForChild("Module"):WaitForChild("DinoHUD"))
 local hud = DinoHUD:Initialize()
 print("[DinoRoyale Client] HUD initialized")
 

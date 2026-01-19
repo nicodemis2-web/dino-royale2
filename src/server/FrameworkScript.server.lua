@@ -66,7 +66,8 @@ local function initialize()
     ensureFolders()
 
     -- Load the framework
-    local Framework = require(script.Parent.Parent.Parent.framework)
+    -- Rojo maps framework/ to ReplicatedStorage.Framework
+    local Framework = require(ReplicatedStorage:WaitForChild("Framework"))
 
     -- Initialize the framework (this will load all services)
     Framework:Initialize()

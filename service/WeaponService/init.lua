@@ -751,8 +751,9 @@ local ATTACHMENT_DEFINITIONS = {
     @return boolean - True if successful
 ]]
 function WeaponService:Initialize()
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
     self:LoadWeaponConfigs()
     self:LoadAttachmentConfigs()

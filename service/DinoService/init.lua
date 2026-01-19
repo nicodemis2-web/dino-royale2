@@ -761,8 +761,9 @@ local mapService = nil             -- MapService reference
 ]]
 function DinoService:Initialize()
     -- Get framework and config references
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
     -- Try to get MapService for spawn points
     mapService = framework:GetService("MapService")

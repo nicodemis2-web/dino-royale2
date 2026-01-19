@@ -68,8 +68,9 @@ local MAP_CONFIG = {
 --=============================================================================
 
 function TerrainSetup:Initialize()
-    framework = require(script.Parent.Parent.framework)
-    gameConfig = require(script.Parent.Parent.src.shared.GameConfig)
+    -- Rojo maps to ReplicatedStorage.Framework and ReplicatedStorage.Shared
+    framework = require(script.Parent.Parent.Framework)
+    gameConfig = require(script.Parent.Parent.Shared.GameConfig)
     terrain = Workspace:FindFirstChild("Terrain") or Workspace.Terrain
 
     framework.Log("Info", "TerrainSetup initialized")

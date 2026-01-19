@@ -69,15 +69,19 @@ function Framework:GetService(serviceName)
     end
 
     -- Attempt to load the service
-    local servicePath = script.Parent.service:FindFirstChild(serviceName)
-    if servicePath then
-        local success, service = pcall(require, servicePath)
-        if success then
-            services[serviceName] = service
-            log("Debug", "Loaded service: %s", serviceName)
-            return service
-        else
-            log("Error", "Failed to load service %s: %s", serviceName, service)
+    -- Rojo maps service/ to ReplicatedStorage.Service
+    local serviceContainer = script.Parent:FindFirstChild("Service")
+    if serviceContainer then
+        local servicePath = serviceContainer:FindFirstChild(serviceName)
+        if servicePath then
+            local success, service = pcall(require, servicePath)
+            if success then
+                services[serviceName] = service
+                log("Debug", "Loaded service: %s", serviceName)
+                return service
+            else
+                log("Error", "Failed to load service %s: %s", serviceName, service)
+            end
         end
     end
 
@@ -95,15 +99,19 @@ function Framework:GetModule(moduleName)
     end
 
     -- Attempt to load the module
-    local modulePath = script.Parent.module:FindFirstChild(moduleName)
-    if modulePath then
-        local success, mod = pcall(require, modulePath)
-        if success then
-            modules[moduleName] = mod
-            log("Debug", "Loaded module: %s", moduleName)
-            return mod
-        else
-            log("Error", "Failed to load module %s: %s", moduleName, mod)
+    -- Rojo maps module/ to ReplicatedStorage.Module
+    local moduleContainer = script.Parent:FindFirstChild("Module")
+    if moduleContainer then
+        local modulePath = moduleContainer:FindFirstChild(moduleName)
+        if modulePath then
+            local success, mod = pcall(require, modulePath)
+            if success then
+                modules[moduleName] = mod
+                log("Debug", "Loaded module: %s", moduleName)
+                return mod
+            else
+                log("Error", "Failed to load module %s: %s", moduleName, mod)
+            end
         end
     end
 
@@ -120,15 +128,22 @@ function Framework:GetUtility(utilityName)
     end
 
     -- Attempt to load from shared/lib
-    local libPath = script.Parent.src.shared.lib:FindFirstChild(utilityName)
-    if libPath then
-        local success, util = pcall(require, libPath)
-        if success then
-            utilities[utilityName] = util
-            log("Debug", "Loaded utility: %s", utilityName)
-            return util
-        else
-            log("Error", "Failed to load utility %s: %s", utilityName, util)
+    -- Rojo maps src/shared to ReplicatedStorage.Shared
+    local sharedContainer = script.Parent:FindFirstChild("Shared")
+    if sharedContainer then
+        local libContainer = sharedContainer:FindFirstChild("lib")
+        if libContainer then
+            local libPath = libContainer:FindFirstChild(utilityName)
+            if libPath then
+                local success, util = pcall(require, libPath)
+                if success then
+                    utilities[utilityName] = util
+                    log("Debug", "Loaded utility: %s", utilityName)
+                    return util
+                else
+                    log("Error", "Failed to load utility %s: %s", utilityName, util)
+                end
+            end
         end
     end
 
