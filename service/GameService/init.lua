@@ -517,18 +517,44 @@ end
 
 --[[
     Get drop positions for spawning
+    Uses MapService:GetPlayerSpawnPoints() for dynamic spawn locations
 ]]
 function GameService:GetDropPositions()
-    -- TODO: Get actual spawn positions from map
-    local positions = {}
-    local mapCenter = Vector3.new(0, gameConfig.Match.dropHeight, 0)
-    local radius = 150
+    -- Try to get spawn points from MapService
+    local mapService = framework:GetService("MapService")
+    if mapService and mapService.GetPlayerSpawnPoints then
+        local spawnPoints = mapService:GetPlayerSpawnPoints()
+        if spawnPoints and #spawnPoints > 0 then
+            -- Adjust Y position for drop height
+            local positions = {}
+            for _, pos in ipairs(spawnPoints) do
+                table.insert(positions, Vector3.new(pos.X, gameConfig.Match.dropHeight, pos.Z))
+            end
+            return positions
+        end
+    end
 
+    -- Fallback: Generate positions around map center
+    local positions = {}
+    local mapCenter = Vector3.new(0, 0, 0)
+    local mapSize = 2048
+
+    -- Try to get map center and size from MapService
+    if mapService then
+        if mapService.GetMapCenter then
+            mapCenter = mapService:GetMapCenter()
+        end
+        if mapService.GetMapSize then
+            mapSize = mapService:GetMapSize()
+        end
+    end
+
+    local radius = mapSize * 0.15  -- 15% of map size for drop spread
     for i = 1, 20 do
         local angle = (i / 20) * math.pi * 2
         local x = math.cos(angle) * radius
         local z = math.sin(angle) * radius
-        table.insert(positions, mapCenter + Vector3.new(x, 0, z))
+        table.insert(positions, Vector3.new(mapCenter.X + x, gameConfig.Match.dropHeight, mapCenter.Z + z))
     end
 
     return positions
@@ -546,10 +572,27 @@ end
 
 --[[
     Teleport player to lobby
+    Uses MapService for lobby spawn location
 ]]
 function GameService:TeleportToLobby(player)
-    -- TODO: Get actual lobby spawn
-    local lobbySpawn = Vector3.new(0, 10, 0)
+    local lobbySpawn = Vector3.new(0, 10, 0)  -- Default fallback
+
+    -- Try to get lobby spawn from MapService
+    local mapService = framework:GetService("MapService")
+    if mapService then
+        -- First try GetLobbySpawn if available
+        if mapService.GetLobbySpawn then
+            local spawn = mapService:GetLobbySpawn()
+            if spawn then
+                lobbySpawn = spawn
+            end
+        -- Otherwise use map center with a small Y offset
+        elseif mapService.GetMapCenter then
+            local center = mapService:GetMapCenter()
+            lobbySpawn = Vector3.new(center.X, 10, center.Z)
+        end
+    end
+
     self:SpawnPlayer(player, lobbySpawn)
 end
 

@@ -146,7 +146,15 @@ function StormService:StartStorm()
 
     -- Reset to initial state
     currentRadius = gameConfig.Storm.visualRadius
-    currentCenter = Vector3.new(0, 0, 0) -- TODO: Get map center
+
+    -- Get map center from MapService (instead of hardcoded 0,0,0)
+    local mapCenter = Vector3.new(0, 0, 0)  -- Fallback
+    local mapService = framework:GetService("MapService")
+    if mapService and mapService.GetMapCenter then
+        mapCenter = mapService:GetMapCenter()
+        framework.Log("Debug", "Storm using map center from MapService: %s", tostring(mapCenter))
+    end
+    currentCenter = mapCenter
 
     -- Show storm visual
     stormPart.Transparency = STORM_TRANSPARENCY
