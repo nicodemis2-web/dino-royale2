@@ -145,6 +145,37 @@ function LootSystem:LoadSpawnPoints()
     if #spawnPoints == 0 then
         self:GenerateDefaultSpawnPoints()
     end
+
+    -- Generate default chests if none found (for test mode)
+    if #chests == 0 then
+        self:GenerateDefaultChests()
+    end
+end
+
+--[[
+    Generate default chest locations (fallback for test mode)
+    Creates chests at various positions around the map center
+]]
+function LootSystem:GenerateDefaultChests()
+    -- Generate 10-15 test chests around the map
+    local chestCount = math.random(10, 15)
+    local mapRadius = 400
+
+    for i = 1, chestCount do
+        local angle = (i / chestCount) * math.pi * 2
+        local radius = math.random(50, mapRadius)
+        local x = math.cos(angle) * radius
+        local z = math.sin(angle) * radius
+
+        table.insert(chests, {
+            position = Vector3.new(x, 10, z),
+            opened = false,
+            model = nil,
+            rarity = (i <= 2) and "epic" or ((i <= 5) and "rare" or "uncommon"),
+        })
+    end
+
+    framework.Log("Warn", "Generated %d default chests for testing", #chests)
 end
 
 --[[
@@ -766,7 +797,7 @@ function LootSystem:ApplyHealing(player, lootData)
 end
 
 --[[
-    Spawn a chest
+    Spawn a chest with visual and audio indicators (FPS best practices)
 ]]
 function LootSystem:SpawnChest(chestData)
     local chestFolder = workspace:FindFirstChild("Chests")
@@ -780,6 +811,7 @@ function LootSystem:SpawnChest(chestData)
     local chest = Instance.new("Model")
     chest.Name = "Chest"
 
+    -- Base (chest body)
     local base = Instance.new("Part")
     base.Name = "Base"
     base.Size = Vector3.new(3, 2, 2)
@@ -787,8 +819,10 @@ function LootSystem:SpawnChest(chestData)
     base.Anchored = true
     base.CanCollide = true
     base.Color = Color3.fromRGB(139, 90, 43)
+    base.Material = Enum.Material.Wood
     base.Parent = chest
 
+    -- Lid
     local lid = Instance.new("Part")
     lid.Name = "Lid"
     lid.Size = Vector3.new(3, 0.5, 2)
@@ -796,15 +830,75 @@ function LootSystem:SpawnChest(chestData)
     lid.Anchored = true
     lid.CanCollide = false
     lid.Color = Color3.fromRGB(160, 110, 50)
+    lid.Material = Enum.Material.Wood
     lid.Parent = chest
 
+    -- Metal trim on lid
+    local trim = Instance.new("Part")
+    trim.Name = "Trim"
+    trim.Size = Vector3.new(3.1, 0.2, 0.2)
+    trim.Position = chestData.position + Vector3.new(0, 1.5, 0.9)
+    trim.Anchored = true
+    trim.CanCollide = false
+    trim.Color = Color3.fromRGB(180, 160, 60)  -- Gold trim
+    trim.Material = Enum.Material.Metal
+    trim.Parent = chest
+
     chest.PrimaryPart = base
+
+    -- ============ VISUAL INDICATORS (FPS Best Practice) ============
+
+    -- Golden glow effect (visible from distance)
+    local glow = Instance.new("PointLight")
+    glow.Name = "ChestGlow"
+    glow.Color = Color3.fromRGB(255, 215, 0)  -- Gold
+    glow.Brightness = 1.5
+    glow.Range = 20
+    glow.Parent = base
+
+    -- Particle sparkle effect
+    local sparkle = Instance.new("ParticleEmitter")
+    sparkle.Name = "Sparkle"
+    sparkle.Color = ColorSequence.new(Color3.fromRGB(255, 223, 128))
+    sparkle.LightEmission = 0.5
+    sparkle.LightInfluence = 0
+    sparkle.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.3),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+    sparkle.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.5),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    sparkle.Lifetime = NumberRange.new(0.5, 1)
+    sparkle.Rate = 10
+    sparkle.Speed = NumberRange.new(2, 4)
+    sparkle.SpreadAngle = Vector2.new(180, 180)
+    sparkle.Parent = base
+
+    -- ============ AUDIO INDICATOR (FPS Best Practice) ============
+
+    -- Ambient hum sound (helps players locate chests)
+    local humSound = Instance.new("Sound")
+    humSound.Name = "ChestHum"
+    humSound.SoundId = "rbxassetid://9125402735"  -- Ambient hum
+    humSound.Volume = 0.3
+    humSound.Looped = true
+    humSound.RollOffMode = Enum.RollOffMode.Linear
+    humSound.RollOffMinDistance = 5
+    humSound.RollOffMaxDistance = 40  -- Audible from 40 studs
+    humSound.Parent = base
+    humSound:Play()
+
+    -- Store sounds for later use
+    chest:SetAttribute("HasAudio", true)
 
     -- Add proximity prompt
     local prompt = Instance.new("ProximityPrompt")
     prompt.ActionText = "Open"
-    prompt.ObjectText = "Chest"
-    prompt.MaxActivationDistance = gameConfig.Player.pickupRange
+    prompt.ObjectText = "Loot Chest"
+    prompt.MaxActivationDistance = gameConfig.Player.pickupRange or 10
+    prompt.HoldDuration = 0.3  -- Quick open
     prompt.Parent = base
 
     prompt.Triggered:Connect(function(playerWhoTriggered)
@@ -815,24 +909,87 @@ function LootSystem:SpawnChest(chestData)
 
     chest.Parent = chestFolder
     chestData.model = chest
+
+    framework.Log("Debug", "Spawned chest at %s with glow and audio", tostring(chestData.position))
 end
 
 --[[
-    Open a chest and spawn loot
+    Open a chest and spawn loot with satisfying feedback
 ]]
 function LootSystem:OpenChest(player, chestData, chestModel)
     chestData.opened = true
 
-    -- Animate lid opening
+    local base = chestModel.PrimaryPart
+
+    -- ============ STOP AMBIENT EFFECTS ============
+
+    -- Stop the hum sound
+    local humSound = base:FindFirstChild("ChestHum")
+    if humSound then
+        humSound:Stop()
+    end
+
+    -- Stop sparkle particles
+    local sparkle = base:FindFirstChild("Sparkle")
+    if sparkle then
+        sparkle.Enabled = false
+    end
+
+    -- Dim the glow
+    local glow = base:FindFirstChild("ChestGlow")
+    if glow then
+        glow.Brightness = 0.3
+    end
+
+    -- ============ PLAY OPEN SOUND ============
+
+    local openSound = Instance.new("Sound")
+    openSound.SoundId = "rbxassetid://9125402735"  -- Chest open sound
+    openSound.Volume = 0.8
+    openSound.Parent = base
+    openSound:Play()
+
+    -- ============ ANIMATE LID OPENING ============
+
     local lid = chestModel:FindFirstChild("Lid")
+    local trim = chestModel:FindFirstChild("Trim")
     if lid then
-        -- Simple rotation animation
-        local originalCFrame = lid.CFrame
-        for i = 1, 10 do
-            lid.CFrame = originalCFrame * CFrame.Angles(math.rad(-9 * i), 0, 0)
+        local originalLidCFrame = lid.CFrame
+        local originalTrimCFrame = trim and trim.CFrame
+
+        -- Smooth lid opening animation
+        for i = 1, 15 do
+            local angle = math.rad(-6 * i)  -- Open to 90 degrees
+            lid.CFrame = originalLidCFrame * CFrame.new(0, 0, -1) * CFrame.Angles(angle, 0, 0) * CFrame.new(0, 0, 1)
+            if trim then
+                trim.CFrame = originalTrimCFrame * CFrame.new(0, 0, -1) * CFrame.Angles(angle, 0, 0) * CFrame.new(0, 0, 1)
+            end
             task.wait(0.02)
         end
     end
+
+    -- ============ BURST PARTICLE EFFECT ============
+
+    local burst = Instance.new("ParticleEmitter")
+    burst.Color = ColorSequence.new(Color3.fromRGB(255, 215, 0))
+    burst.LightEmission = 1
+    burst.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+    burst.Transparency = NumberSequence.new(0, 1)
+    burst.Lifetime = NumberRange.new(0.5, 1)
+    burst.Speed = NumberRange.new(10, 20)
+    burst.SpreadAngle = Vector2.new(180, 180)
+    burst.Parent = base
+    burst:Emit(30)  -- Burst of 30 particles
+
+    -- Clean up burst emitter after particles fade
+    task.delay(1.5, function()
+        if burst then burst:Destroy() end
+    end)
+
+    -- ============ SPAWN LOOT ============
 
     -- Spawn 2-4 items around chest
     local numItems = math.random(2, 4)
@@ -840,7 +997,7 @@ function LootSystem:OpenChest(player, chestData, chestModel)
 
     for i = 1, numItems do
         local angle = (i / numItems) * math.pi * 2
-        local offset = Vector3.new(math.cos(angle) * 3, 0, math.sin(angle) * 3)
+        local offset = Vector3.new(math.cos(angle) * 3, 1, math.sin(angle) * 3)  -- Raised slightly
 
         local spawnPoint = {
             position = basePos + offset,

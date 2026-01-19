@@ -200,12 +200,12 @@ function Framework:Initialize()
     log("Info", "Initializing Dino Royale Framework v%s", Framework.Config.VERSION)
 
     -- Initialize core services in order
+    -- Note: AudioService removed - not yet implemented
     local coreServices = {
         "GameService",
         "WeaponService",
         "StormService",
         "DinoService",
-        "AudioService"
     }
 
     for _, serviceName in ipairs(coreServices) do

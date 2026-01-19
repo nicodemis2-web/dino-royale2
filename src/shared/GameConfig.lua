@@ -415,6 +415,50 @@ GameConfig.Map = {
         power_station = "uncommon",
     },
 
+    -- POI definitions for map generation
+    POIs = {
+        visitor_center = {
+            position = Vector3.new(0, 0, 200),
+            size = 120,
+            lootTier = "epic",
+        },
+        raptor_paddock = {
+            position = Vector3.new(-300, 0, 100),
+            size = 80,
+            lootTier = "rare",
+        },
+        trex_kingdom = {
+            position = Vector3.new(300, 0, -100),
+            size = 100,
+            lootTier = "legendary",
+        },
+        genetics_lab = {
+            position = Vector3.new(-200, 0, -250),
+            size = 90,
+            lootTier = "epic",
+        },
+        aviary = {
+            position = Vector3.new(200, 0, 250),
+            size = 70,
+            lootTier = "rare",
+        },
+        docks = {
+            position = Vector3.new(-400, 0, -50),
+            size = 60,
+            lootTier = "uncommon",
+        },
+        communications = {
+            position = Vector3.new(400, 0, 50),
+            size = 50,
+            lootTier = "rare",
+        },
+        power_station = {
+            position = Vector3.new(0, 0, -350),
+            size = 70,
+            lootTier = "uncommon",
+        },
+    },
+
     -- Environmental events
     events = {
         volcanic_eruption = {

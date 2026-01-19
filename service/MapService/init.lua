@@ -54,7 +54,11 @@ local mapData = nil                  -- Current map configuration
 local activeBiomes = {}              -- Currently active biome instances
 local activePOIs = {}                -- Currently active POI instances
 local activeEvents = {}              -- Currently running environmental events
-local spawnPoints = {}               -- Player and dinosaur spawn locations
+local spawnPoints = {                -- Player and dinosaur spawn locations
+    player = {},
+    dinosaur = {},
+    loot = {},
+}
 local eventLoopRunning = false       -- Whether the event loop is active
 local framework = nil                -- Framework reference
 local gameConfig = nil               -- Game configuration reference
@@ -1977,8 +1981,11 @@ end
 ]]
 function MapService:GetPlayerSpawnPoints()
     local positions = {}
-    for _, spawn in ipairs(spawnPoints.player) do
-        table.insert(positions, spawn.position)
+    -- Handle case where spawnPoints.player may not be initialized
+    if spawnPoints and spawnPoints.player then
+        for _, spawn in ipairs(spawnPoints.player) do
+            table.insert(positions, spawn.position)
+        end
     end
     return positions
 end
@@ -1990,6 +1997,11 @@ end
     @return table - Array of spawn point data
 ]]
 function MapService:GetDinoSpawnPoints(biomeFilter)
+    -- Handle case where spawnPoints may not be initialized
+    if not spawnPoints or not spawnPoints.dinosaur then
+        return {}
+    end
+
     if not biomeFilter then
         return spawnPoints.dinosaur
     end
@@ -2009,6 +2021,10 @@ end
     @return table - Array of spawn point data
 ]]
 function MapService:GetLootSpawnPoints()
+    -- Handle case where spawnPoints may not be initialized
+    if not spawnPoints or not spawnPoints.loot then
+        return {}
+    end
     return spawnPoints.loot
 end
 
@@ -2202,7 +2218,11 @@ function MapService:Shutdown()
     activeBiomes = {}
     activePOIs = {}
     activeEvents = {}
-    spawnPoints = {}
+    spawnPoints = {
+        player = {},
+        dinosaur = {},
+        loot = {},
+    }
     mapData = nil
     isInitialized = false
 

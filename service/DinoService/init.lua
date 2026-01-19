@@ -1205,29 +1205,111 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     local model = Instance.new("Model")
     model.Name = dinoType
 
-    -- Create body part
+    local bodySize = def.modelSize or Vector3.new(4, 3, 8)
+    local bodyColor = def.color or Color3.fromRGB(100, 100, 100)
+
+    -- Create body part (main dinosaur body)
     local body = Instance.new("Part")
     body.Name = "Body"
     body.Anchored = false
     body.CanCollide = true
-    body.Size = def.modelSize or Vector3.new(4, 3, 8)
-    body.Color = def.color or Color3.fromRGB(100, 100, 100)
+    body.Size = bodySize
+    body.Color = bodyColor
+    body.Material = Enum.Material.SmoothPlastic
     body.Parent = model
     model.PrimaryPart = body
 
-    -- Add humanoid for pathfinding
+    -- Create head (sphere at front)
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Shape = Enum.PartType.Ball
+    head.Size = Vector3.new(bodySize.Y * 0.8, bodySize.Y * 0.8, bodySize.Y * 0.8)
+    head.Color = bodyColor
+    head.Material = Enum.Material.SmoothPlastic
+    head.Anchored = false
+    head.CanCollide = false
+    head.Position = body.Position + Vector3.new(0, bodySize.Y * 0.3, bodySize.Z * 0.5)
+    head.Parent = model
+
+    -- Weld head to body
+    local headWeld = Instance.new("WeldConstraint")
+    headWeld.Part0 = body
+    headWeld.Part1 = head
+    headWeld.Parent = model
+
+    -- Create tail (wedge at back)
+    local tail = Instance.new("WedgePart")
+    tail.Name = "Tail"
+    tail.Size = Vector3.new(bodySize.X * 0.5, bodySize.Y * 0.4, bodySize.Z * 0.6)
+    tail.Color = bodyColor
+    tail.Material = Enum.Material.SmoothPlastic
+    tail.Anchored = false
+    tail.CanCollide = false
+    tail.CFrame = body.CFrame * CFrame.new(0, -bodySize.Y * 0.2, -bodySize.Z * 0.7) * CFrame.Angles(0, math.pi, 0)
+    tail.Parent = model
+
+    -- Weld tail to body
+    local tailWeld = Instance.new("WeldConstraint")
+    tailWeld.Part0 = body
+    tailWeld.Part1 = tail
+    tailWeld.Parent = model
+
+    -- Add name billboard above dinosaur
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "NameBillboard"
+    billboard.Size = UDim2.new(0, 100, 0, 30)
+    billboard.StudsOffset = Vector3.new(0, bodySize.Y + 3, 0)
+    billboard.Adornee = body
+    billboard.AlwaysOnTop = true
+    billboard.Parent = body
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 1, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = def.name or dinoType:upper()
+    nameLabel.TextColor3 = Color3.new(1, 0.2, 0.2)
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextScaled = true
+    nameLabel.Parent = billboard
+
+    -- Add health bar billboard
+    local healthBillboard = Instance.new("BillboardGui")
+    healthBillboard.Name = "HealthBillboard"
+    healthBillboard.Size = UDim2.new(0, 80, 0, 10)
+    healthBillboard.StudsOffset = Vector3.new(0, bodySize.Y + 1.5, 0)
+    healthBillboard.Adornee = body
+    healthBillboard.AlwaysOnTop = true
+    healthBillboard.Parent = body
+
+    local healthBg = Instance.new("Frame")
+    healthBg.Size = UDim2.new(1, 0, 1, 0)
+    healthBg.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+    healthBg.BorderSizePixel = 0
+    healthBg.Parent = healthBillboard
+
+    local healthBar = Instance.new("Frame")
+    healthBar.Name = "HealthBar"
+    healthBar.Size = UDim2.new(1, 0, 1, 0)
+    healthBar.BackgroundColor3 = Color3.new(0.2, 0.8, 0.2)
+    healthBar.BorderSizePixel = 0
+    healthBar.Parent = healthBg
+
+    -- Add humanoid for pathfinding and health
     local humanoid = Instance.new("Humanoid")
     humanoid.MaxHealth = def.health
     humanoid.Health = def.health
     humanoid.WalkSpeed = def.speed
     humanoid.Parent = model
 
-    -- Create root part
+    -- Create root part for humanoid
     local rootPart = Instance.new("Part")
     rootPart.Name = "HumanoidRootPart"
     rootPart.Transparency = 1
     rootPart.CanCollide = false
     rootPart.Size = Vector3.new(2, 2, 1)
+    rootPart.CFrame = body.CFrame
     rootPart.Parent = model
 
     -- Weld body to root
@@ -1235,6 +1317,8 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     weld.Part0 = rootPart
     weld.Part1 = body
     weld.Parent = model
+
+    framework.Log("Debug", "Created placeholder model for %s at size %s", dinoType, tostring(bodySize))
 
     return model
 end

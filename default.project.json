@@ -28,10 +28,6 @@
 
       "Main": {
         "$path": "ServerScriptService/main.server.lua"
-      },
-
-      "Server": {
-        "$path": "src/server"
       }
     },
 
@@ -43,10 +39,6 @@
 
         "Main": {
           "$path": "StarterPlayerScripts/main.client.lua"
-        },
-
-        "Client": {
-          "$path": "src/client"
         }
       }
     },

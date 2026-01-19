@@ -270,6 +270,23 @@ function GameService:MatchPhase()
     local dinoService = framework:GetService("DinoService")
     if dinoService and not gameConfig.Debug.noDinosaurs then
         dinoService:StartSpawning()
+        print("[DinoRoyale] Dinosaur spawning started")
+
+        -- In test mode, spawn an immediate test dinosaur nearby
+        if isTestMode then
+            task.defer(function()
+                task.wait(2)  -- Wait for player to spawn
+                local testPos = Vector3.new(50, 10, 50)
+                local dino = dinoService:SpawnDinosaur("raptor", testPos)
+                if dino then
+                    print("[DinoRoyale] TEST MODE: Spawned test raptor at " .. tostring(testPos))
+                else
+                    warn("[DinoRoyale] TEST MODE: Failed to spawn test raptor")
+                end
+            end)
+        end
+    else
+        print("[DinoRoyale] Dinosaur spawning disabled (noDinosaurs=" .. tostring(gameConfig.Debug.noDinosaurs) .. ")")
     end
 
     -- Monitor match progress

@@ -88,11 +88,13 @@ local serviceInitOrder = {
     Modules are support systems that may depend on services.
 
     Dependency Graph:
+        PlayerInventory → WeaponService (needs weapon definitions)
         LootSystem → WeaponService, MapService (needs weapon defs and POI locations)
         SquadSystem → GameService (needs match state for team formation)
 ]]
 local moduleInitOrder = {
     "MapAssets",        -- Asset loading system (terrain, buildings, dinosaur models)
+    "PlayerInventory",  -- Player inventory system (weapons, ammo, consumables)
     "LootSystem",       -- Loot spawning (weapons, ammo, healing, throwables, traps)
     "SquadSystem",      -- Team management (solo/duos/trios, revives)
 }
@@ -189,6 +191,20 @@ if TerrainSetup then
         print("[DinoRoyale] ✓ Map terrain generated")
     else
         warn("[DinoRoyale] ✗ Terrain generation failed: " .. tostring(err))
+    end
+end
+
+-- Generate MapService data (POIs, spawn points, etc.) after terrain
+-- This populates activePOIs, spawnPoints.loot, etc. for LootSystem
+if MapService and MapService.GenerateMap then
+    print("[DinoRoyale] Generating map data (POIs, spawn points)...")
+    local success, err = pcall(function()
+        MapService:GenerateMap()
+    end)
+    if success then
+        print("[DinoRoyale] ✓ Map data generated")
+    else
+        warn("[DinoRoyale] ✗ Map data generation failed: " .. tostring(err))
     end
 end
 
