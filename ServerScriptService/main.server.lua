@@ -65,6 +65,7 @@ print("[DinoRoyale] GameConfig loaded")
         DinoService → MapService (queries spawn points)
 ]]
 local serviceInitOrder = {
+    "TerrainSetup",     -- Procedural terrain generation (for testing without imported assets)
     "GameService",      -- Match state machine (LOBBY → STARTING → DROPPING → MATCH → ENDING → CLEANUP)
     "MapService",       -- Map/biome system (jungle, volcanic, swamp, facility, plains, coastal)
     "StormService",     -- Zone mechanics (shrinking safe zone)
@@ -81,6 +82,7 @@ local serviceInitOrder = {
         SquadSystem → GameService (needs match state for team formation)
 ]]
 local moduleInitOrder = {
+    "MapAssets",        -- Asset loading system (terrain, buildings, dinosaur models)
     "LootSystem",       -- Loot spawning (weapons, ammo, healing, throwables, traps)
     "SquadSystem",      -- Team management (solo/duos/trios, revives)
 }
@@ -160,6 +162,24 @@ end
 -- Connect LootSystem to MapService for POI-based loot
 if MapService and LootSystem then
     print("[DinoRoyale] ✓ LootSystem connected to MapService")
+end
+
+--=============================================================================
+-- TERRAIN GENERATION
+-- Generate the game map (terrain, POIs, lobby area)
+--=============================================================================
+
+local TerrainSetup = framework:GetService("TerrainSetup")
+if TerrainSetup then
+    print("[DinoRoyale] Generating map terrain...")
+    local success, err = pcall(function()
+        TerrainSetup:GenerateMap()
+    end)
+    if success then
+        print("[DinoRoyale] ✓ Map terrain generated")
+    else
+        warn("[DinoRoyale] ✗ Terrain generation failed: " .. tostring(err))
+    end
 end
 
 --=============================================================================
