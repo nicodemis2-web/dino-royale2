@@ -2012,6 +2012,74 @@ function MapService:GetLootSpawnPoints()
 end
 
 --[[
+    Get chest spawn locations from POIs
+    Each POI can have designated chest locations for higher-tier loot
+
+    @return table - Array of chest location data {position, rarity, poiId}
+]]
+function MapService:GetPOIChestLocations()
+    local chestLocations = {}
+
+    -- Iterate through all active POIs to find chest spawn points
+    for _, poi in ipairs(activePOIs) do
+        if poi.definition and poi.definition.chestLocations then
+            -- POI has defined chest locations
+            for _, chestOffset in ipairs(poi.definition.chestLocations) do
+                table.insert(chestLocations, {
+                    position = poi.position + chestOffset,
+                    rarity = poi.definition.lootTier or "rare",
+                    poiId = poi.id,
+                    poiName = poi.name,
+                })
+            end
+        else
+            -- Generate default chest location at POI center if no explicit locations
+            -- Higher-tier POIs get more chests
+            local lootTier = poi.definition and poi.definition.lootTier or "uncommon"
+            local chestCount = (lootTier == "legendary" and 3) or (lootTier == "epic" and 2) or 1
+
+            for i = 1, chestCount do
+                local angle = (i / chestCount) * math.pi * 2
+                local offset = Vector3.new(math.cos(angle) * 10, 0, math.sin(angle) * 10)
+                table.insert(chestLocations, {
+                    position = poi.position + offset,
+                    rarity = lootTier,
+                    poiId = poi.id,
+                    poiName = poi.name,
+                })
+            end
+        end
+    end
+
+    framework.Log("Debug", "Generated %d chest locations from %d POIs", #chestLocations, #activePOIs)
+    return chestLocations
+end
+
+--[[
+    Get map center position
+
+    @return Vector3 - Center of the map
+]]
+function MapService:GetMapCenter()
+    if mapData and mapData.center then
+        return mapData.center
+    end
+    return MAP_CENTER -- Fallback to constant
+end
+
+--[[
+    Get map bounds
+
+    @return number - Map size (width/length in studs)
+]]
+function MapService:GetMapSize()
+    if mapData and mapData.size then
+        return mapData.size
+    end
+    return MAP_SIZE -- Fallback to constant
+end
+
+--[[
     Sync map data to all connected clients
 ]]
 function MapService:SyncMapToClients()

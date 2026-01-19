@@ -185,6 +185,10 @@ Key methods:
 - `MapService:TriggerEvent(eventType)` - Start environmental event
 - `MapService:GetPlayerSpawnPoints()` - Get drop locations
 - `MapService:GetDinoSpawnPoints()` - Get dino spawn locations
+- `MapService:GetLootSpawnPoints()` - Get ground loot locations
+- `MapService:GetPOIChestLocations()` - Get chest locations from POIs
+- `MapService:GetMapCenter()` - Get map center position
+- `MapService:GetMapSize()` - Get map dimensions
 
 **Environmental Events:**
 - `volcanic_eruption` - Area damage

@@ -288,7 +288,30 @@ local function onMatchPhaseChanged(newState, oldState)
 end
 
 -- Register the phase change callback with GameService
--- (GameService already handles this internally, but we can extend it)
+-- Listen for GameStateChanged remote to hook into state transitions
+if GameService then
+    -- Connect to GameStateChanged remote for server-side state monitoring
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local stateRemote = remotes:FindFirstChild("GameStateChanged")
+        if stateRemote then
+            -- Note: The server doesn't receive FireClient events, so we poll state
+            -- or use a custom signal. For now, hook into GameService's internal update.
+            task.spawn(function()
+                local lastState = nil
+                while true do
+                    local currentState = GameService:GetState()
+                    if currentState ~= lastState then
+                        onMatchPhaseChanged(currentState, lastState)
+                        lastState = currentState
+                    end
+                    task.wait(0.5) -- Check every half second
+                end
+            end)
+            print("[DinoRoyale] ✓ State change monitor connected")
+        end
+    end
+end
 
 --=============================================================================
 -- PLAYER CONNECTION HANDLING
