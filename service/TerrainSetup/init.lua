@@ -567,6 +567,9 @@ function TerrainSetup:GenerateMultiFloorBuilding(parent, name, position, size, b
 
         -- Add interior furniture
         self:AddInteriorFurniture(buildingModel, position, floorY + 1, buildingWidth * 0.8, buildingDepth * 0.8, config.furniture or {})
+
+        -- Add interior lighting
+        self:AddInteriorLighting(buildingModel, position, floorY + 1, buildingWidth * 0.9, buildingDepth * 0.9, floorHeight - 2)
     end
 
     -- Roof
@@ -584,21 +587,37 @@ function TerrainSetup:GenerateMultiFloorBuilding(parent, name, position, size, b
 end
 
 --[[
-    Generate an enclosure with fencing
+    Generate an enclosure with fencing and ACCESSIBLE entrance with stairs
+    Used for T-Rex Kingdom and other large dinosaur enclosures
+    Features:
+    - High security fencing with gaps for entrance
+    - Stairway entrance structure with roof
+    - Observation deck with railings
+    - Interior lighting on platforms
 ]]
 function TerrainSetup:GenerateEnclosure(parent, name, position, size, baseY, config)
-    local wallHeight = config.wallHeight or 15
+    local wallHeight = config.wallHeight or 20
     local fenceColor = config.fenceColor or Color3.fromRGB(60, 60, 60)
+    local isMassive = config.buildingType == "massive_enclosure"
+
+    -- Increase wall height for T-Rex Kingdom
+    if isMassive then
+        wallHeight = 30
+    end
 
     local enclosureModel = Instance.new("Model")
     enclosureModel.Name = name .. "_Enclosure"
 
-    -- Fence posts and walls
-    local fenceSegments = 8
+    local radius = size * 0.45
+    local entranceAngle = math.pi / 2  -- Entrance at front (positive Z)
+
+    -- Fence posts and walls (with gap for entrance)
+    local fenceSegments = 12
+    local entranceSegment = 3  -- Which segment has the entrance
+
     for i = 1, fenceSegments do
         local angle = (i / fenceSegments) * math.pi * 2
         local nextAngle = ((i + 1) / fenceSegments) * math.pi * 2
-        local radius = size * 0.45
 
         local x1 = position.X + math.cos(angle) * radius
         local z1 = position.Z + math.sin(angle) * radius
@@ -608,54 +627,265 @@ function TerrainSetup:GenerateEnclosure(parent, name, position, size, baseY, con
         -- Fence post
         local post = Instance.new("Part")
         post.Name = "Post" .. i
-        post.Size = Vector3.new(2, wallHeight, 2)
-        post.Position = Vector3.new(x1, baseY + wallHeight/2, z1)
+        post.Size = Vector3.new(3, wallHeight, 3)
+        post.Position = Vector3.new(x1, baseY + wallHeight / 2, z1)
         post.Anchored = true
         post.Material = Enum.Material.Metal
         post.Color = fenceColor
         post.Parent = enclosureModel
         table.insert(generatedParts, post)
 
-        -- Fence section (wire mesh look)
-        local fenceLength = math.sqrt((x2-x1)^2 + (z2-z1)^2)
-        local fenceAngle = math.atan2(z2-z1, x2-x1)
+        -- Warning light on top of post
+        local warningLight = Instance.new("Part")
+        warningLight.Name = "WarningLight" .. i
+        warningLight.Shape = Enum.PartType.Ball
+        warningLight.Size = Vector3.new(2, 2, 2)
+        warningLight.Position = post.Position + Vector3.new(0, wallHeight / 2 + 1, 0)
+        warningLight.Anchored = true
+        warningLight.Material = Enum.Material.Neon
+        warningLight.Color = Color3.fromRGB(255, 50, 50)  -- Red warning
+        warningLight.Parent = enclosureModel
+        table.insert(generatedParts, warningLight)
 
-        local fence = Instance.new("Part")
-        fence.Name = "Fence" .. i
-        fence.Size = Vector3.new(fenceLength, wallHeight - 2, 0.5)
-        fence.CFrame = CFrame.new((x1+x2)/2, baseY + wallHeight/2, (z1+z2)/2) * CFrame.Angles(0, -fenceAngle, 0)
-        fence.Anchored = true
-        fence.Material = Enum.Material.DiamondPlate
-        fence.Color = fenceColor
-        fence.Transparency = 0.3
-        fence.Parent = enclosureModel
-        table.insert(generatedParts, fence)
+        -- Skip fence section at entrance
+        if i ~= entranceSegment then
+            -- Fence section (wire mesh look)
+            local fenceLength = math.sqrt((x2 - x1) ^ 2 + (z2 - z1) ^ 2)
+            local fenceAngle = math.atan2(z2 - z1, x2 - x1)
+
+            local fence = Instance.new("Part")
+            fence.Name = "Fence" .. i
+            fence.Size = Vector3.new(fenceLength, wallHeight - 2, 1)
+            fence.CFrame = CFrame.new((x1 + x2) / 2, baseY + wallHeight / 2, (z1 + z2) / 2) * CFrame.Angles(0, -fenceAngle, 0)
+            fence.Anchored = true
+            fence.Material = Enum.Material.DiamondPlate
+            fence.Color = fenceColor
+            fence.Transparency = 0.2
+            fence.Parent = enclosureModel
+            table.insert(generatedParts, fence)
+
+            -- Electrified warning strip at top
+            local electricStrip = Instance.new("Part")
+            electricStrip.Name = "ElectricStrip" .. i
+            electricStrip.Size = Vector3.new(fenceLength, 0.5, 1.5)
+            electricStrip.CFrame = CFrame.new((x1 + x2) / 2, baseY + wallHeight - 0.5, (z1 + z2) / 2) * CFrame.Angles(0, -fenceAngle, 0)
+            electricStrip.Anchored = true
+            electricStrip.Material = Enum.Material.Neon
+            electricStrip.Color = Color3.fromRGB(255, 200, 50)  -- Yellow warning
+            electricStrip.Parent = enclosureModel
+            table.insert(generatedParts, electricStrip)
+        end
     end
 
-    -- Observation deck
-    if config.hasObservationDeck then
-        local deckSize = 20
-        local deck = Instance.new("Part")
-        deck.Name = "ObservationDeck"
-        deck.Size = Vector3.new(deckSize, 2, deckSize)
-        deck.Position = Vector3.new(position.X + size * 0.3, baseY + wallHeight + 5, position.Z)
-        deck.Anchored = true
-        deck.Material = Enum.Material.Metal
-        deck.Color = Color3.fromRGB(80, 80, 80)
-        deck.Parent = enclosureModel
-        table.insert(generatedParts, deck)
+    -- ENTRANCE STRUCTURE with stairs
+    local entranceX = position.X + math.cos(entranceAngle) * radius
+    local entranceZ = position.Z + math.sin(entranceAngle) * radius
+    local entranceWidth = 15
+    local entranceDepth = 25
 
-        -- Railing
-        for _, offset in ipairs({{deckSize/2, 0}, {-deckSize/2, 0}, {0, deckSize/2}, {0, -deckSize/2}}) do
-            local rail = Instance.new("Part")
-            rail.Size = Vector3.new(offset[1] == 0 and deckSize or 1, 4, offset[2] == 0 and deckSize or 1)
-            rail.Position = deck.Position + Vector3.new(offset[1], 2, offset[2])
-            rail.Anchored = true
-            rail.Material = Enum.Material.Metal
-            rail.Color = Color3.fromRGB(60, 60, 60)
-            rail.Parent = enclosureModel
-            table.insert(generatedParts, rail)
-        end
+    -- Entrance building (visitor entrance)
+    local entranceBuilding = Instance.new("Model")
+    entranceBuilding.Name = "EntranceBuilding"
+
+    -- Floor of entrance
+    local entranceFloor = Instance.new("Part")
+    entranceFloor.Name = "EntranceFloor"
+    entranceFloor.Size = Vector3.new(entranceWidth, 1, entranceDepth)
+    entranceFloor.Position = Vector3.new(entranceX, baseY, entranceZ + entranceDepth / 2)
+    entranceFloor.Anchored = true
+    entranceFloor.Material = Enum.Material.Concrete
+    entranceFloor.Color = Color3.fromRGB(80, 80, 80)
+    entranceFloor.Parent = entranceBuilding
+    table.insert(generatedParts, entranceFloor)
+
+    -- Entrance walls (left and right, with opening to enclosure)
+    for side = -1, 1, 2 do
+        local sideWall = Instance.new("Part")
+        sideWall.Name = (side == -1 and "Left" or "Right") .. "EntranceWall"
+        sideWall.Size = Vector3.new(2, 10, entranceDepth)
+        sideWall.Position = Vector3.new(entranceX + side * entranceWidth / 2, baseY + 5, entranceZ + entranceDepth / 2)
+        sideWall.Anchored = true
+        sideWall.Material = Enum.Material.Concrete
+        sideWall.Color = Color3.fromRGB(100, 90, 80)
+        sideWall.Parent = entranceBuilding
+        table.insert(generatedParts, sideWall)
+    end
+
+    -- Entrance roof
+    local entranceRoof = Instance.new("Part")
+    entranceRoof.Name = "EntranceRoof"
+    entranceRoof.Size = Vector3.new(entranceWidth + 4, 1, entranceDepth + 2)
+    entranceRoof.Position = Vector3.new(entranceX, baseY + 10.5, entranceZ + entranceDepth / 2)
+    entranceRoof.Anchored = true
+    entranceRoof.Material = Enum.Material.Metal
+    entranceRoof.Color = Color3.fromRGB(60, 60, 60)
+    entranceRoof.Parent = entranceBuilding
+    table.insert(generatedParts, entranceRoof)
+
+    -- Add lighting to entrance
+    self:AddInteriorLighting(entranceBuilding, Vector3.new(entranceX, 0, entranceZ + entranceDepth / 2), baseY + 1, entranceWidth - 2, entranceDepth - 2, 8)
+
+    -- STAIRS going DOWN into enclosure (enclosure floor is lower)
+    local stairCount = 8
+    local stairWidth = entranceWidth - 4
+    local stairDepth = 2
+    local stairHeight = 1.5
+    local enclosureFloorY = baseY - stairCount * stairHeight  -- Enclosure floor is below ground level
+
+    for s = 1, stairCount do
+        local stair = Instance.new("Part")
+        stair.Name = "Stair" .. s
+        stair.Size = Vector3.new(stairWidth, stairHeight, stairDepth)
+        stair.Position = Vector3.new(
+            entranceX,
+            baseY - (s - 0.5) * stairHeight,
+            entranceZ - (s - 1) * stairDepth
+        )
+        stair.Anchored = true
+        stair.Material = Enum.Material.Concrete
+        stair.Color = Color3.fromRGB(100, 100, 100)
+        stair.Parent = entranceBuilding
+        table.insert(generatedParts, stair)
+    end
+
+    -- Enclosure floor (lower than surrounding terrain)
+    local enclosureFloor = Instance.new("Part")
+    enclosureFloor.Name = "EnclosureFloor"
+    enclosureFloor.Size = Vector3.new(radius * 1.8, 1, radius * 1.8)
+    enclosureFloor.Position = Vector3.new(position.X, enclosureFloorY, position.Z)
+    enclosureFloor.Anchored = true
+    enclosureFloor.Material = Enum.Material.Ground
+    enclosureFloor.Color = Color3.fromRGB(80, 70, 50)
+    enclosureFloor.Parent = enclosureModel
+    table.insert(generatedParts, enclosureFloor)
+
+    entranceBuilding.Parent = enclosureModel
+
+    -- Observation deck (elevated viewing platform)
+    local deckSize = 25
+    local deckHeight = wallHeight + 8
+    local deck = Instance.new("Part")
+    deck.Name = "ObservationDeck"
+    deck.Size = Vector3.new(deckSize, 2, deckSize)
+    deck.Position = Vector3.new(position.X - size * 0.35, baseY + deckHeight, position.Z)
+    deck.Anchored = true
+    deck.Material = Enum.Material.Metal
+    deck.Color = Color3.fromRGB(80, 80, 80)
+    deck.Parent = enclosureModel
+    table.insert(generatedParts, deck)
+
+    -- Deck railings
+    local railings = {
+        {deckSize / 2, 0, deckSize, 1},
+        {-deckSize / 2, 0, deckSize, 1},
+        {0, deckSize / 2, 1, deckSize},
+        {0, -deckSize / 2, 1, deckSize},
+    }
+    for ri, r in ipairs(railings) do
+        local rail = Instance.new("Part")
+        rail.Name = "Railing" .. ri
+        rail.Size = Vector3.new(r[3], 4, r[4])
+        rail.Position = deck.Position + Vector3.new(r[1], 3, r[2])
+        rail.Anchored = true
+        rail.Material = Enum.Material.Metal
+        rail.Color = Color3.fromRGB(60, 60, 60)
+        rail.Parent = enclosureModel
+        table.insert(generatedParts, rail)
+    end
+
+    -- Deck access stairs (from ground to deck)
+    local deckStairCount = 12
+    local deckStairWidth = 6
+    for ds = 1, deckStairCount do
+        local deckStair = Instance.new("Part")
+        deckStair.Name = "DeckStair" .. ds
+        deckStair.Size = Vector3.new(deckStairWidth, 1, 2)
+        deckStair.Position = Vector3.new(
+            deck.Position.X - deckSize / 2 - 2 - ds * 2,
+            baseY + ds * (deckHeight / deckStairCount),
+            deck.Position.Z
+        )
+        deckStair.Anchored = true
+        deckStair.Material = Enum.Material.Metal
+        deckStair.Color = Color3.fromRGB(70, 70, 70)
+        deckStair.Parent = enclosureModel
+        table.insert(generatedParts, deckStair)
+    end
+
+    -- Stair railing
+    local stairRailL = Instance.new("Part")
+    stairRailL.Name = "StairRailL"
+    stairRailL.Size = Vector3.new(deckStairCount * 2 + 4, 1, 1)
+    stairRailL.CFrame = CFrame.new(
+        deck.Position.X - deckSize / 2 - 2 - deckStairCount,
+        baseY + deckHeight / 2 + 2,
+        deck.Position.Z + deckStairWidth / 2 + 0.5
+    ) * CFrame.Angles(0, 0, math.rad(-deckHeight / (deckStairCount * 2) * 30))
+    stairRailL.Anchored = true
+    stairRailL.Material = Enum.Material.Metal
+    stairRailL.Color = Color3.fromRGB(60, 60, 60)
+    stairRailL.Parent = enclosureModel
+    table.insert(generatedParts, stairRailL)
+
+    -- Add lighting to observation deck
+    local deckLight = Instance.new("Part")
+    deckLight.Name = "DeckLight"
+    deckLight.Size = Vector3.new(3, 0.5, 3)
+    deckLight.Position = deck.Position + Vector3.new(0, 4, 0)
+    deckLight.Anchored = true
+    deckLight.Material = Enum.Material.Neon
+    deckLight.Color = Color3.fromRGB(255, 250, 230)
+    deckLight.Parent = enclosureModel
+    table.insert(generatedParts, deckLight)
+
+    local deckPointLight = Instance.new("PointLight")
+    deckPointLight.Brightness = 2
+    deckPointLight.Range = 40
+    deckPointLight.Color = Color3.fromRGB(255, 250, 230)
+    deckPointLight.Parent = deckLight
+
+    -- Warning signs
+    local signPositions = {
+        {radius * 0.5, entranceAngle + math.pi / 4},
+        {radius * 0.5, entranceAngle - math.pi / 4},
+    }
+    for si, sp in ipairs(signPositions) do
+        local signPost = Instance.new("Part")
+        signPost.Name = "SignPost" .. si
+        signPost.Size = Vector3.new(0.5, 6, 0.5)
+        signPost.Position = Vector3.new(
+            position.X + math.cos(sp[2]) * sp[1],
+            baseY + 3,
+            position.Z + math.sin(sp[2]) * sp[1]
+        )
+        signPost.Anchored = true
+        signPost.Material = Enum.Material.Metal
+        signPost.Color = Color3.fromRGB(100, 100, 100)
+        signPost.Parent = enclosureModel
+        table.insert(generatedParts, signPost)
+
+        local signBoard = Instance.new("Part")
+        signBoard.Name = "SignBoard" .. si
+        signBoard.Size = Vector3.new(4, 2, 0.2)
+        signBoard.Position = signPost.Position + Vector3.new(0, 3, 0)
+        signBoard.Anchored = true
+        signBoard.Material = Enum.Material.SmoothPlastic
+        signBoard.Color = Color3.fromRGB(200, 50, 50)
+        signBoard.Parent = enclosureModel
+        table.insert(generatedParts, signBoard)
+
+        local signGui = Instance.new("SurfaceGui")
+        signGui.Face = Enum.NormalId.Front
+        signGui.Parent = signBoard
+
+        local signText = Instance.new("TextLabel")
+        signText.Size = UDim2.new(1, 0, 1, 0)
+        signText.BackgroundTransparency = 1
+        signText.TextColor3 = Color3.new(1, 1, 1)
+        signText.Text = "⚠ DANGER"
+        signText.TextScaled = true
+        signText.Font = Enum.Font.GothamBold
+        signText.Parent = signGui
     end
 
     enclosureModel.Parent = parent
@@ -874,6 +1104,9 @@ function TerrainSetup:GenerateWarehouse(parent, name, position, size, baseY, con
         crate.Parent = warehouseModel
         table.insert(generatedParts, crate)
     end
+
+    -- Add interior lighting
+    self:AddInteriorLighting(warehouseModel, position, baseY + 1, width - 4, depth - 4, height - 2)
 
     warehouseModel.Parent = parent
 end
@@ -1180,6 +1413,86 @@ function TerrainSetup:AddDoorway(parent, position, width, height)
 end
 
 --[[
+    Add interior lighting to a room/building
+    Creates ceiling lights and optional accent lighting
+]]
+function TerrainSetup:AddInteriorLighting(parent, position, floorY, width, depth, ceilingHeight)
+    ceilingHeight = ceilingHeight or 10
+
+    -- Calculate number of lights based on room size
+    local lightsX = math.max(1, math.floor(width / 15))
+    local lightsZ = math.max(1, math.floor(depth / 15))
+
+    for lx = 1, lightsX do
+        for lz = 1, lightsZ do
+            -- Ceiling light fixture
+            local lightFixture = Instance.new("Part")
+            lightFixture.Name = "LightFixture"
+            lightFixture.Size = Vector3.new(3, 0.5, 3)
+            lightFixture.Position = Vector3.new(
+                position.X + (lx - (lightsX + 1) / 2) * (width / lightsX),
+                floorY + ceilingHeight - 1,
+                position.Z + (lz - (lightsZ + 1) / 2) * (depth / lightsZ)
+            )
+            lightFixture.Anchored = true
+            lightFixture.Material = Enum.Material.Metal
+            lightFixture.Color = Color3.fromRGB(200, 200, 200)
+            lightFixture.Parent = parent
+            table.insert(generatedParts, lightFixture)
+
+            -- Light emitting part (glowing)
+            local lightPart = Instance.new("Part")
+            lightPart.Name = "Light"
+            lightPart.Size = Vector3.new(2.5, 0.3, 2.5)
+            lightPart.Position = lightFixture.Position - Vector3.new(0, 0.4, 0)
+            lightPart.Anchored = true
+            lightPart.Material = Enum.Material.Neon
+            lightPart.Color = Color3.fromRGB(255, 250, 230)  -- Warm white
+            lightPart.CanCollide = false
+            lightPart.Parent = parent
+            table.insert(generatedParts, lightPart)
+
+            -- Add actual PointLight for illumination
+            local pointLight = Instance.new("PointLight")
+            pointLight.Name = "PointLight"
+            pointLight.Color = Color3.fromRGB(255, 250, 230)
+            pointLight.Brightness = 1.5
+            pointLight.Range = 25
+            pointLight.Shadows = true
+            pointLight.Parent = lightPart
+        end
+    end
+
+    -- Add corner accent lights (smaller, colored)
+    local accentPositions = {
+        {-width / 2 + 2, depth / 2 - 2},
+        {width / 2 - 2, depth / 2 - 2},
+        {-width / 2 + 2, -depth / 2 + 2},
+        {width / 2 - 2, -depth / 2 + 2},
+    }
+
+    for i, offset in ipairs(accentPositions) do
+        local accent = Instance.new("Part")
+        accent.Name = "AccentLight" .. i
+        accent.Shape = Enum.PartType.Ball
+        accent.Size = Vector3.new(1, 1, 1)
+        accent.Position = Vector3.new(position.X + offset[1], floorY + 3, position.Z + offset[2])
+        accent.Anchored = true
+        accent.Material = Enum.Material.Neon
+        accent.Color = Color3.fromRGB(100, 200, 255)  -- Blue accent
+        accent.CanCollide = false
+        accent.Parent = parent
+        table.insert(generatedParts, accent)
+
+        local accentLight = Instance.new("PointLight")
+        accentLight.Color = Color3.fromRGB(100, 200, 255)
+        accentLight.Brightness = 0.5
+        accentLight.Range = 10
+        accentLight.Parent = accent
+    end
+end
+
+--[[
     Add interior furniture based on room type
 ]]
 function TerrainSetup:AddInteriorFurniture(parent, position, floorY, width, depth, furnitureTypes)
@@ -1368,35 +1681,41 @@ function TerrainSetup:GenerateFlora()
                 end
 
                 -- Generate trees
+                -- IMPORTANT: Raycast at actual spawn position, not grid position
                 if densityNoise > 0.3 and math.random() < self:GetTreeChance(biome) then
-                    local terrainHeight = self:GetTerrainHeight(Vector3.new(x, 0, z))
+                    local offsetX = (math.random() - 0.5) * gridSpacing * 0.8
+                    local offsetZ = (math.random() - 0.5) * gridSpacing * 0.8
+                    local spawnX, spawnZ = x + offsetX, z + offsetZ
+                    local terrainHeight = self:GetTerrainHeight(Vector3.new(spawnX, 0, spawnZ))
                     if terrainHeight > 3 then  -- Above water
-                        local offsetX = (math.random() - 0.5) * gridSpacing * 0.8
-                        local offsetZ = (math.random() - 0.5) * gridSpacing * 0.8
-                        self:GenerateTree(floraFolder, Vector3.new(x + offsetX, terrainHeight, z + offsetZ), biome)
+                        self:GenerateTree(floraFolder, Vector3.new(spawnX, terrainHeight, spawnZ), biome)
                         treesGenerated = treesGenerated + 1
                     end
                 end
 
                 -- Generate rocks
+                -- IMPORTANT: Raycast at actual spawn position
                 if densityNoise > 0.4 and math.random() < self:GetRockChance(biome) then
-                    local terrainHeight = self:GetTerrainHeight(Vector3.new(x, 0, z))
+                    local offsetX = (math.random() - 0.5) * gridSpacing * 0.6
+                    local offsetZ = (math.random() - 0.5) * gridSpacing * 0.6
+                    local spawnX, spawnZ = x + offsetX, z + offsetZ
+                    local terrainHeight = self:GetTerrainHeight(Vector3.new(spawnX, 0, spawnZ))
                     if terrainHeight > 2 then
-                        local offsetX = (math.random() - 0.5) * gridSpacing * 0.6
-                        local offsetZ = (math.random() - 0.5) * gridSpacing * 0.6
-                        self:GenerateRock(floraFolder, Vector3.new(x + offsetX, terrainHeight, z + offsetZ), biome)
+                        self:GenerateRock(floraFolder, Vector3.new(spawnX, terrainHeight, spawnZ), biome)
                         rocksGenerated = rocksGenerated + 1
                     end
                 end
 
                 -- Generate ground plants/flowers
+                -- IMPORTANT: Each plant gets its own terrain height check
                 if densityNoise > 0.25 and math.random() < self:GetPlantChance(biome) then
-                    local terrainHeight = self:GetTerrainHeight(Vector3.new(x, 0, z))
-                    if terrainHeight > 3 then
-                        for _ = 1, math.random(2, 5) do
-                            local offsetX = (math.random() - 0.5) * gridSpacing * 0.9
-                            local offsetZ = (math.random() - 0.5) * gridSpacing * 0.9
-                            self:GeneratePlant(floraFolder, Vector3.new(x + offsetX, terrainHeight, z + offsetZ), biome)
+                    for _ = 1, math.random(2, 5) do
+                        local offsetX = (math.random() - 0.5) * gridSpacing * 0.9
+                        local offsetZ = (math.random() - 0.5) * gridSpacing * 0.9
+                        local spawnX, spawnZ = x + offsetX, z + offsetZ
+                        local terrainHeight = self:GetTerrainHeight(Vector3.new(spawnX, 0, spawnZ))
+                        if terrainHeight > 3 then
+                            self:GeneratePlant(floraFolder, Vector3.new(spawnX, terrainHeight, spawnZ), biome)
                             plantsGenerated = plantsGenerated + 1
                         end
                     end
