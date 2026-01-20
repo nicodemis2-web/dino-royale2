@@ -1569,10 +1569,48 @@ function TerrainSetup:GetTerrainHeight(position)
     local rayOrigin = Vector3.new(position.X, 500, position.Z)
     local rayDirection = Vector3.new(0, -1000, 0)
 
-    local result = Workspace:Raycast(rayOrigin, rayDirection)
+    -- Collect folders to exclude from raycast (buildings, flora, etc.)
+    -- We only want to hit the actual terrain, not placed objects
+    local excludeList = {}
+    local poisFolder = Workspace:FindFirstChild("POIs")
+    local floraFolder = Workspace:FindFirstChild("Flora")
+    local lobbyPlatform = Workspace:FindFirstChild("LobbyPlatform")
+
+    if poisFolder then table.insert(excludeList, poisFolder) end
+    if floraFolder then table.insert(excludeList, floraFolder) end
+    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+
+    -- Create raycast params that exclude placed objects
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = excludeList
+    raycastParams.IgnoreWater = true  -- Ignore water when finding ground
+
+    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
     if result then
         return result.Position.Y
+    end
+
+    -- Fallback: try to read terrain height directly from Roblox terrain voxels
+    -- This handles cases where raycast fails but terrain exists
+    local success, material = pcall(function()
+        return terrain:ReadVoxels(
+            Region3.new(
+                Vector3.new(position.X - 2, 0, position.Z - 2),
+                Vector3.new(position.X + 2, 200, position.Z + 2)
+            ):ExpandToGrid(4),
+            4
+        )
+    end)
+
+    -- Find highest occupied voxel
+    if success and material and #material > 0 and #material[1] > 0 and #material[1][1] > 0 then
+        for y = #material[1][1], 1, -1 do
+            if material[1][1][y] ~= Enum.Material.Air and material[1][1][y] ~= Enum.Material.Water then
+                return y * 4  -- Convert voxel Y to world Y (4 studs per voxel)
+            end
+        end
     end
 
     return MAP_CONFIG.baseHeight
@@ -1582,18 +1620,36 @@ end
     Generate the lobby spawn area
 ]]
 function TerrainSetup:GenerateLobbyArea()
-    -- Create lobby platform above the island center
+    -- Get actual terrain height at map center
+    local centerTerrainHeight = self:GetTerrainHeight(Vector3.new(0, 0, 0))
+    framework.Log("Debug", "Lobby: Terrain height at center is %d", centerTerrainHeight)
+
+    -- Create a ground-level spawn first (primary spawn point)
+    -- This ensures players spawn ON the terrain, not floating or underground
+    local groundSpawn = Instance.new("SpawnLocation")
+    groundSpawn.Name = "GroundSpawn"
+    groundSpawn.Size = Vector3.new(20, 1, 20)
+    groundSpawn.Position = Vector3.new(0, centerTerrainHeight + 3, 0)
+    groundSpawn.Anchored = true
+    groundSpawn.Neutral = true
+    groundSpawn.CanCollide = false
+    groundSpawn.Transparency = 1
+    groundSpawn.Parent = Workspace
+    table.insert(generatedParts, groundSpawn)
+
+    -- Create lobby platform above the island center (elevated area)
     local lobbyPlatform = Instance.new("Part")
     lobbyPlatform.Name = "LobbyPlatform"
     lobbyPlatform.Size = Vector3.new(100, 5, 100)
-    lobbyPlatform.Position = Vector3.new(0, MAP_CONFIG.baseHeight + 50, 0)
+    lobbyPlatform.Position = Vector3.new(0, centerTerrainHeight + 50, 0)
     lobbyPlatform.Anchored = true
     lobbyPlatform.Material = Enum.Material.SmoothPlastic
     lobbyPlatform.Color = Color3.fromRGB(50, 150, 200)
     lobbyPlatform.Transparency = 0.3
     lobbyPlatform.Parent = Workspace
+    table.insert(generatedParts, lobbyPlatform)
 
-    -- Add spawn location
+    -- Add secondary spawn location on the elevated platform
     local spawn = Instance.new("SpawnLocation")
     spawn.Name = "LobbySpawn"
     spawn.Size = Vector3.new(6, 1, 6)
@@ -1603,6 +1659,7 @@ function TerrainSetup:GenerateLobbyArea()
     spawn.CanCollide = false
     spawn.Transparency = 1
     spawn.Parent = Workspace
+    table.insert(generatedParts, spawn)
 
     -- Add welcome sign
     local sign = Instance.new("Part")

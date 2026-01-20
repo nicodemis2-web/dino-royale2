@@ -826,6 +826,7 @@ function WeaponService:SetupRemotes()
 
     local weaponRemotes = {
         "WeaponFire", "WeaponReload", "WeaponEquip", "WeaponDrop", "WeaponPickup",
+        "WeaponAim",  -- For ADS (aim down sights) state
         "BulletHit", "DamageDealt", "DamageReceived",
         "MeleeSwing", "MeleeHit",
         "ThrowProjectile", "ProjectileExplode", "DetonateC4",
@@ -878,6 +879,35 @@ function WeaponService:SetupRemotes()
     remoteFolder.PlaceTrap.OnServerEvent:Connect(function(player, data)
         self:HandlePlaceTrap(player, data)
     end)
+
+    -- WeaponAim - for ADS state (optional, mainly for animation sync)
+    remoteFolder.WeaponAim.OnServerEvent:Connect(function(player, isAiming)
+        self:HandleAim(player, isAiming)
+    end)
+end
+
+--[[
+    Handle aim down sights state change
+    Used to sync ADS animations across clients
+    @param player Player
+    @param isAiming boolean
+]]
+function WeaponService:HandleAim(player, isAiming)
+    local inventory = playerWeapons[player.UserId]
+    if not inventory then return end
+
+    -- Store aiming state
+    inventory.isAiming = isAiming
+
+    -- Broadcast to other clients for animation sync (optional)
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        for _, otherPlayer in ipairs(Players:GetPlayers()) do
+            if otherPlayer ~= player then
+                remotes.WeaponAim:FireClient(otherPlayer, player.UserId, isAiming)
+            end
+        end
+    end
 end
 
 --[[
@@ -968,9 +998,16 @@ function WeaponService:GiveWeapon(player, weaponType, currentAmmo)
     }
 
     inventory.slots[slot] = weapon
+
+    -- Auto-equip if this is the first weapon or no weapon is currently equipped
+    if inventory.equipped == 0 then
+        inventory.equipped = slot
+        self:UpdateCharacterWeaponModel(player, slot)
+    end
+
     self:BroadcastInventoryUpdate(player)
     framework.Log("Debug", "%s received %s in slot %d", player.Name, config.name, slot)
-    return true
+    return true, slot
 end
 
 --[[
@@ -1095,30 +1132,47 @@ end
     @param data table - Fire data
 ]]
 function WeaponService:HandleWeaponFire(player, data)
+    framework.Log("Info", "WeaponFire received from %s", player.Name)
+
     local inventory = playerWeapons[player.UserId]
-    if not inventory then return end
+    if not inventory then
+        framework.Log("Debug", "WeaponFire: No inventory for %s", player.Name)
+        return
+    end
 
     local equippedSlot = inventory.equipped
-    if equippedSlot == 0 then return end
+    if equippedSlot == 0 then
+        framework.Log("Debug", "WeaponFire: No weapon equipped for %s", player.Name)
+        return
+    end
 
     local weapon = inventory.slots[equippedSlot]
-    if not weapon then return end
+    if not weapon then
+        framework.Log("Debug", "WeaponFire: Empty slot %d for %s", equippedSlot, player.Name)
+        return
+    end
 
     local config = weapon.config
 
     -- Skip for non-ranged
-    if config.category == "melee" or config.category == "trap" then return end
+    if config.category == "melee" or config.category == "trap" then
+        framework.Log("Debug", "WeaponFire: Non-ranged weapon %s", config.category)
+        return
+    end
 
     -- Validate fire rate
     local now = tick()
     local lastFire = inventory.lastFireTime[equippedSlot] or 0
     local minInterval = 1 / (config.fireRate or 1)
 
-    if (now - lastFire) < (minInterval * 0.8) then return end
+    if (now - lastFire) < (minInterval * 0.8) then return end -- Rate limit silently (expected)
     inventory.lastFireTime[equippedSlot] = now
 
     -- Check ammo
-    if config.magazineSize and weapon.currentAmmo <= 0 then return end
+    if config.magazineSize and weapon.currentAmmo <= 0 then
+        framework.Log("Debug", "WeaponFire: Out of ammo for %s", player.Name)
+        return
+    end
 
     -- Consume ammo
     if config.magazineSize then
@@ -1134,7 +1188,10 @@ function WeaponService:HandleWeaponFire(player, data)
         self:FireHitscan(player, weapon, data)
     end
 
-    -- Broadcast to other clients
+    -- Update client's ammo display
+    self:BroadcastInventoryUpdate(player)
+
+    -- Broadcast to other clients for visual/audio effects
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
         for _, otherPlayer in ipairs(Players:GetPlayers()) do
@@ -2251,10 +2308,217 @@ function WeaponService:HandleEquip(player, slotIndex)
 
     inventory.equipped = slotIndex
 
+    -- Create/update visible weapon model on character
+    self:UpdateCharacterWeaponModel(player, slotIndex)
+
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
         remotes.WeaponEquip:FireAllClients(player.UserId, slotIndex)
     end
+end
+
+--[[
+    Update the visible weapon model on a player's character
+    @param player Player
+    @param slotIndex number
+]]
+function WeaponService:UpdateCharacterWeaponModel(player, slotIndex)
+    local character = player.Character
+    if not character then return end
+
+    local rightArm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
+    if not rightArm then return end
+
+    -- Remove existing weapon model
+    local existingWeapon = character:FindFirstChild("EquippedWeaponModel")
+    if existingWeapon then
+        existingWeapon:Destroy()
+    end
+
+    local inventory = playerWeapons[player.UserId]
+    if not inventory then return end
+
+    local weapon = inventory.slots[slotIndex]
+    if not weapon then return end
+
+    -- Create weapon model
+    local weaponModel = self:CreateWeaponModel(weapon)
+    if not weaponModel then return end
+
+    weaponModel.Name = "EquippedWeaponModel"
+    weaponModel.Parent = character
+
+    -- Weld weapon to right hand/arm
+    local primaryPart = weaponModel.PrimaryPart or weaponModel:FindFirstChildWhichIsA("BasePart")
+    if primaryPart then
+        primaryPart.Anchored = false
+        primaryPart.CanCollide = false
+
+        local weld = Instance.new("Weld")
+        weld.Part0 = rightArm
+        weld.Part1 = primaryPart
+        -- Position weapon in hand (adjust offset based on weapon type)
+        local config = weapon.config
+        local gripOffset = config.gripOffset or CFrame.new(0, -1, -0.5) * CFrame.Angles(math.rad(-90), 0, 0)
+        weld.C0 = gripOffset
+        weld.Parent = primaryPart
+    end
+
+    framework.Log("Debug", "Equipped %s model on %s", weapon.config.name, player.Name)
+end
+
+--[[
+    Create a weapon model for display
+    @param weapon table - Weapon data with type and config
+    @return Model|nil - The created weapon model
+]]
+function WeaponService:CreateWeaponModel(weapon)
+    local config = weapon.config
+    if not config then return nil end
+
+    local model = Instance.new("Model")
+    model.Name = weapon.type .. "_model"
+
+    -- Create weapon geometry based on category
+    local category = config.category or "pistol"
+    local primaryPart
+
+    if category == "melee" then
+        -- Melee weapon (blade shape)
+        primaryPart = Instance.new("Part")
+        primaryPart.Size = Vector3.new(0.3, 0.3, 2.5)
+        primaryPart.Color = Color3.fromRGB(100, 100, 100)
+        primaryPart.Material = Enum.Material.Metal
+
+        local blade = Instance.new("Part")
+        blade.Size = Vector3.new(0.1, 0.4, 1.5)
+        blade.Color = Color3.fromRGB(180, 180, 180)
+        blade.Material = Enum.Material.Metal
+        blade.CFrame = primaryPart.CFrame * CFrame.new(0, 0, -1.5)
+        blade.Parent = model
+
+        local bladeWeld = Instance.new("Weld")
+        bladeWeld.Part0 = primaryPart
+        bladeWeld.Part1 = blade
+        bladeWeld.C0 = CFrame.new(0, 0, -1.5)
+        bladeWeld.Parent = blade
+    elseif category == "sniper" then
+        -- Long rifle shape
+        primaryPart = Instance.new("Part")
+        primaryPart.Size = Vector3.new(0.25, 0.35, 3.5)
+        primaryPart.Color = Color3.fromRGB(60, 60, 60)
+        primaryPart.Material = Enum.Material.Metal
+
+        -- Scope
+        local scope = Instance.new("Part")
+        scope.Shape = Enum.PartType.Cylinder
+        scope.Size = Vector3.new(0.6, 0.2, 0.2)
+        scope.Color = Color3.fromRGB(40, 40, 40)
+        scope.Material = Enum.Material.Metal
+        scope.CFrame = primaryPart.CFrame * CFrame.new(0, 0.25, -0.5) * CFrame.Angles(0, 0, math.rad(90))
+        scope.Parent = model
+
+        local scopeWeld = Instance.new("Weld")
+        scopeWeld.Part0 = primaryPart
+        scopeWeld.Part1 = scope
+        scopeWeld.C0 = CFrame.new(0, 0.25, -0.5) * CFrame.Angles(0, 0, math.rad(90))
+        scopeWeld.Parent = scope
+    elseif category == "shotgun" then
+        -- Shorter, wider barrel
+        primaryPart = Instance.new("Part")
+        primaryPart.Size = Vector3.new(0.3, 0.35, 2.2)
+        primaryPart.Color = Color3.fromRGB(80, 60, 40)
+        primaryPart.Material = Enum.Material.Wood
+
+        local barrel = Instance.new("Part")
+        barrel.Size = Vector3.new(0.35, 0.35, 1.5)
+        barrel.Color = Color3.fromRGB(50, 50, 50)
+        barrel.Material = Enum.Material.Metal
+        barrel.Parent = model
+
+        local barrelWeld = Instance.new("Weld")
+        barrelWeld.Part0 = primaryPart
+        barrelWeld.Part1 = barrel
+        barrelWeld.C0 = CFrame.new(0, 0, -1.5)
+        barrelWeld.Parent = barrel
+    elseif category == "assault_rifle" or category == "smg" then
+        -- Standard rifle shape
+        primaryPart = Instance.new("Part")
+        primaryPart.Size = Vector3.new(0.25, 0.3, 2.5)
+        primaryPart.Color = Color3.fromRGB(50, 50, 50)
+        primaryPart.Material = Enum.Material.Metal
+
+        -- Magazine
+        local mag = Instance.new("Part")
+        mag.Size = Vector3.new(0.15, 0.5, 0.25)
+        mag.Color = Color3.fromRGB(40, 40, 40)
+        mag.Material = Enum.Material.Metal
+        mag.Parent = model
+
+        local magWeld = Instance.new("Weld")
+        magWeld.Part0 = primaryPart
+        magWeld.Part1 = mag
+        magWeld.C0 = CFrame.new(0, -0.3, 0.3)
+        magWeld.Parent = mag
+
+        -- Stock
+        local stock = Instance.new("Part")
+        stock.Size = Vector3.new(0.2, 0.25, 0.8)
+        stock.Color = Color3.fromRGB(60, 50, 40)
+        stock.Material = Enum.Material.Wood
+        stock.Parent = model
+
+        local stockWeld = Instance.new("Weld")
+        stockWeld.Part0 = primaryPart
+        stockWeld.Part1 = stock
+        stockWeld.C0 = CFrame.new(0, -0.05, 1.4)
+        stockWeld.Parent = stock
+    else
+        -- Default pistol shape
+        primaryPart = Instance.new("Part")
+        primaryPart.Size = Vector3.new(0.2, 0.35, 1.2)
+        primaryPart.Color = Color3.fromRGB(40, 40, 40)
+        primaryPart.Material = Enum.Material.Metal
+
+        -- Grip
+        local grip = Instance.new("Part")
+        grip.Size = Vector3.new(0.18, 0.5, 0.25)
+        grip.Color = Color3.fromRGB(30, 30, 30)
+        grip.Material = Enum.Material.Plastic
+        grip.Parent = model
+
+        local gripWeld = Instance.new("Weld")
+        gripWeld.Part0 = primaryPart
+        gripWeld.Part1 = grip
+        gripWeld.C0 = CFrame.new(0, -0.35, 0.35) * CFrame.Angles(math.rad(-15), 0, 0)
+        gripWeld.Parent = grip
+    end
+
+    -- Setup primary part
+    primaryPart.Anchored = false
+    primaryPart.CanCollide = false
+    primaryPart.Name = "Handle"
+    primaryPart.Parent = model
+    model.PrimaryPart = primaryPart
+
+    -- Apply rarity color tint
+    local rarityColors = gameConfig.Loot and gameConfig.Loot.rarityColors
+    if rarityColors and config.rarity then
+        local rarityColor = rarityColors[config.rarity]
+        if rarityColor then
+            -- Add subtle glow effect for rare+ weapons
+            if config.rarity == "rare" or config.rarity == "epic" or config.rarity == "legendary" then
+                local highlight = Instance.new("Highlight")
+                highlight.FillTransparency = 0.8
+                highlight.OutlineTransparency = 0.5
+                highlight.FillColor = rarityColor
+                highlight.OutlineColor = rarityColor
+                highlight.Parent = model
+            end
+        end
+    end
+
+    return model
 end
 
 --[[

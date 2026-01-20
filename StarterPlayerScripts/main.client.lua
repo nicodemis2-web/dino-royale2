@@ -333,13 +333,25 @@ Remotes.OnEvent("WeaponFire", function(shooterUserId, weaponId, origin, directio
     end
 end)
 
--- Damage dealt feedback
-Remotes.OnEvent("DamageDealt", function(targetUserId, damage, isHeadshot)
-    -- Hit marker feedback
-    print(string.format("[DinoRoyale Client] Hit for %d damage%s", damage, isHeadshot and " (HEADSHOT)" or ""))
-    -- Show hit marker on crosshair and play sound
+-- Damage dealt feedback - shows hit marker when our shots connect
+Remotes.OnEvent("DamageDealt", function(data)
+    if type(data) ~= "table" then return end
+
+    local damage = data.damage or 0
+    local isHeadshot = data.isHeadshot or false
+
+    -- Show hit marker on crosshair
     hud:ShowHitMarker(isHeadshot)
-    -- Damage numbers float up from target position (handled by DinoHUD)
+
+    -- Play hit sound (different sound for headshot)
+    local hitSound = Instance.new("Sound")
+    hitSound.SoundId = isHeadshot and "rbxassetid://168143115" or "rbxassetid://168143115"
+    hitSound.Volume = 0.5
+    hitSound.Parent = workspace.CurrentCamera
+    hitSound:Play()
+    hitSound.Ended:Connect(function()
+        hitSound:Destroy()
+    end)
 end)
 
 -- Bullet hit effect
@@ -370,6 +382,49 @@ end)
 -- Chest opened
 Remotes.OnEvent("ChestOpened", function(data)
     -- Play chest open sound at location
+end)
+
+--=============================================================================
+-- INVENTORY EVENT HANDLERS
+-- Handle weapon and item updates from server
+--=============================================================================
+
+-- Inventory update from server - sync weapons, ammo, etc.
+Remotes.OnEvent("InventoryUpdate", function(data)
+    if data then
+        clientState.inventory = data
+        -- Update HUD weapon slots if method exists (server sends 'slots')
+        if data.slots and hud.UpdateWeaponSlots then
+            hud:UpdateWeaponSlots(data.slots)
+        end
+        -- Server sends 'equipped' - sync to client state
+        if data.equipped and data.equipped > 0 then
+            clientState.selectedWeaponSlot = data.equipped
+            hud:SelectWeaponSlot(data.equipped)
+        end
+        print(string.format("[DinoRoyale Client] Inventory updated - equipped slot: %d", data.equipped or 0))
+    end
+end)
+
+-- Ammo update from server
+Remotes.OnEvent("AmmoUpdate", function(ammoData)
+    if ammoData then
+        clientState.inventory.ammo = ammoData
+        -- Update ammo display if method exists
+        if hud.UpdateAmmoDisplay then
+            hud:UpdateAmmoDisplay(ammoData)
+        end
+    end
+end)
+
+-- Weapon equip from server (another player equipped weapon - for animation sync)
+Remotes.OnEvent("WeaponEquip", function(userId, slotIndex, weaponId)
+    -- If this is for our player, update local state
+    if userId == player.UserId then
+        clientState.selectedWeaponSlot = slotIndex
+        hud:SelectWeaponSlot(slotIndex)
+    end
+    -- Could also update third-person weapon display for other players here
 end)
 
 --=============================================================================
@@ -490,6 +545,8 @@ end)
 local isMouseDown = false
 local isAiming = false
 local fireConnection = nil
+local lastFireTime = 0
+local FIRE_RATE_LIMIT = 0.1  -- Minimum time between shots (10 shots/sec max)
 
 --[[
     Get the mouse position and direction for aiming/shooting
@@ -509,26 +566,186 @@ local function getMouseRay()
 end
 
 --[[
+    Create muzzle flash effect on character's weapon
+    Shows a brief flash of light and particles at the weapon barrel
+]]
+local function createMuzzleFlash()
+    local character = player.Character
+    if not character then return end
+
+    -- Find the weapon model on the character
+    local weaponModel = character:FindFirstChild("EquippedWeapon")
+    if not weaponModel then
+        -- Fallback: create flash at right hand
+        local rightHand = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+        if rightHand then
+            weaponModel = rightHand
+        else
+            return
+        end
+    end
+
+    -- Create flash part
+    local flash = Instance.new("Part")
+    flash.Name = "MuzzleFlash"
+    flash.Size = Vector3.new(0.5, 0.5, 0.5)
+    flash.Anchored = true
+    flash.CanCollide = false
+    flash.Transparency = 0.3
+    flash.Material = Enum.Material.Neon
+    flash.Color = Color3.fromRGB(255, 200, 50)  -- Orange-yellow
+    flash.CastShadow = false
+
+    -- Position at front of weapon
+    local camera = workspace.CurrentCamera
+    if camera then
+        local lookVector = camera.CFrame.LookVector
+        flash.Position = weaponModel.Position + lookVector * 2
+    else
+        flash.Position = weaponModel.Position + Vector3.new(0, 0, -2)
+    end
+
+    -- Add point light for flash effect
+    local light = Instance.new("PointLight")
+    light.Color = Color3.fromRGB(255, 200, 100)
+    light.Brightness = 5
+    light.Range = 15
+    light.Parent = flash
+
+    flash.Parent = workspace
+
+    -- Remove after brief moment
+    task.delay(0.05, function()
+        if flash and flash.Parent then
+            flash:Destroy()
+        end
+    end)
+end
+
+--[[
+    Play gunshot sound
+    Creates a 3D sound at the character's position
+]]
+local function playGunshotSound()
+    local character = player.Character
+    if not character then return end
+
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    -- Create sound (using built-in Roblox sounds as fallback)
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://168143115"  -- Generic gunshot sound
+    sound.Volume = 0.8
+    sound.RollOffMode = Enum.RollOffMode.Linear
+    sound.RollOffMaxDistance = 200
+    sound.RollOffMinDistance = 10
+    sound.Parent = humanoidRootPart
+    sound:Play()
+
+    -- Cleanup after playing
+    sound.Ended:Connect(function()
+        sound:Destroy()
+    end)
+end
+
+--[[
+    Start aiming animation - adjusts character pose and camera
+]]
+local function startAiming()
+    local character = player.Character
+    if not character then return end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    -- Adjust camera FOV for zoom effect
+    local camera = workspace.CurrentCamera
+    if camera then
+        local TweenService = game:GetService("TweenService")
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(camera, tweenInfo, {FieldOfView = 50})
+        tween:Play()
+    end
+
+    -- Update crosshair to show tighter spread
+    if hud and hud.SetCrosshairSpread then
+        hud:SetCrosshairSpread(0.5)  -- Tighter crosshair when aiming
+    end
+
+    print("[DinoRoyale Client] Aiming started - FOV adjusted")
+end
+
+--[[
+    Stop aiming animation - returns to normal pose and camera
+]]
+local function stopAiming()
+    local character = player.Character
+    if not character then return end
+
+    -- Reset camera FOV
+    local camera = workspace.CurrentCamera
+    if camera then
+        local TweenService = game:GetService("TweenService")
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(camera, tweenInfo, {FieldOfView = 70})
+        tween:Play()
+    end
+
+    -- Reset crosshair spread
+    if hud and hud.SetCrosshairSpread then
+        hud:SetCrosshairSpread(1.0)  -- Normal crosshair
+    end
+
+    print("[DinoRoyale Client] Aiming stopped - FOV reset")
+end
+
+--[[
     Fire the equipped weapon
     Sends fire request to server with aim direction
     Server will perform raycast for hit detection
 ]]
 local function fireWeapon()
-    if not clientState.isAlive then return end
-    if clientState.gameState ~= "Match" and clientState.gameState ~= "Lobby" then return end
+    -- Rate limit client-side firing
+    local now = tick()
+    if now - lastFireTime < FIRE_RATE_LIMIT then
+        return  -- Too soon to fire again
+    end
+    lastFireTime = now
+
+    if not clientState.isAlive then
+        return
+    end
+    if clientState.gameState ~= "Match" and clientState.gameState ~= "Lobby" then
+        return
+    end
 
     local origin, direction = getMouseRay()
 
-    -- Send as a table with origin and direction for server to raycast
-    Remotes.FireServer("WeaponFire", {
-        origin = origin,
-        direction = direction,
-        slotIndex = clientState.selectedWeaponSlot,
-    })
+    -- Send fire request to server
+    local success, err = pcall(function()
+        Remotes.FireServer("WeaponFire", {
+            origin = origin,
+            direction = direction,
+            slotIndex = clientState.selectedWeaponSlot,
+        })
+    end)
+
+    if success then
+        -- Create immediate visual and audio feedback
+        createMuzzleFlash()
+        playGunshotSound()
+
+        -- Show hit marker effect on crosshair
+        if hud and hud.ShowHitMarker then
+            -- This will be shown when server confirms hit
+        end
+    end
 end
 
 -- Handle mouse button down (start firing)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- Ignore inputs consumed by Roblox UI (chat, menus, etc.)
     if gameProcessed then return end
 
     -- Don't process mouse input if settings menu is open
@@ -552,11 +769,11 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     -- Right mouse button - Aim down sights (ADS)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = true
-        -- Note: WeaponAim remote may not exist yet - it's optional
+        startAiming()
+        -- Notify server of aim state
         pcall(function()
             Remotes.FireServer("WeaponAim", true)
         end)
-        -- Could also adjust camera FOV here for zoom effect
     end
 end)
 
@@ -574,7 +791,8 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     -- Right mouse button released - Stop aiming
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = false
-        -- Note: WeaponAim remote may not exist yet - it's optional
+        stopAiming()
+        -- Notify server of aim state
         pcall(function()
             Remotes.FireServer("WeaponAim", false)
         end)

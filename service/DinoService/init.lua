@@ -1519,6 +1519,7 @@ function DinoService:GetTerrainHeight(position)
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
     raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Dinosaurs")}
+    raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
 
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
@@ -1526,8 +1527,8 @@ function DinoService:GetTerrainHeight(position)
         return result.Position.Y
     end
 
-    -- Fallback to default height
-    return 10
+    -- Fallback to default terrain height
+    return 5
 end
 
 --=============================================================================

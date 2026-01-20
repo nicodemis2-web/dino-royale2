@@ -192,6 +192,8 @@ function Remotes.FireServer(eventName, ...)
     local event = Remotes.GetEvent(eventName)
     if event then
         event:FireServer(...)
+    else
+        warn("[Remotes] FireServer failed - event not found:", eventName)
     end
 end
 

@@ -20,8 +20,8 @@ StormService.__index = StormService
 -- Private state
 local isActive = false
 local currentPhase = 0
-local currentRadius = 1000
-local targetRadius = 1000
+local currentRadius = 1500           -- Start larger than map
+local targetRadius = 1500
 local currentCenter = Vector3.new(0, 0, 0)
 local targetCenter = Vector3.new(0, 0, 0)
 local stormPart = nil
@@ -29,6 +29,8 @@ local damageConnection = nil
 local shrinkTween = nil
 local gameConfig = nil
 local framework = nil
+local inGracePeriod = true           -- Grace period - no damage at start
+local graceTimeRemaining = 0
 
 -- Storm visual settings
 local STORM_COLOR = Color3.fromRGB(75, 0, 130)  -- Deep purple
@@ -43,8 +45,9 @@ function StormService:Initialize()
     framework = require(script.Parent.Parent.Framework)
     gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
-    -- Set initial radius from config
-    currentRadius = gameConfig.Storm.visualRadius
+    -- Set initial radius from config - must be LARGER than the map
+    -- This ensures players spawn INSIDE the safe zone
+    currentRadius = gameConfig.Storm.initialRadius or 1500
     targetRadius = currentRadius
 
     -- Create storm visual
@@ -53,7 +56,8 @@ function StormService:Initialize()
     -- Setup remotes
     self:SetupRemotes()
 
-    framework.Log("Info", "StormService initialized")
+    framework.Log("Info", "StormService initialized with radius %d (map radius: %d)",
+        currentRadius, gameConfig.Storm.mapRadius or 1000)
     return true
 end
 
@@ -85,8 +89,14 @@ end
 
 --[[
     Create the visual storm barrier
+    The storm is represented as a large cylinder surrounding the safe zone
+    Players outside this cylinder take damage (when not in grace period)
 ]]
 function StormService:CreateStormVisual()
+    -- Get initial radius from config (should be larger than map)
+    local initialRadius = gameConfig.Storm.initialRadius or 1500
+    currentRadius = initialRadius
+
     -- Create a hollow cylinder for the storm wall
     stormPart = Instance.new("Part")
     stormPart.Name = "StormWall"
@@ -96,7 +106,7 @@ function StormService:CreateStormVisual()
     stormPart.Material = Enum.Material.ForceField
     stormPart.Color = STORM_COLOR
     stormPart.Transparency = STORM_TRANSPARENCY
-    stormPart.Size = Vector3.new(currentRadius * 2, STORM_HEIGHT, currentRadius * 2)
+    stormPart.Size = Vector3.new(STORM_HEIGHT, currentRadius * 2, currentRadius * 2)
     stormPart.Position = Vector3.new(currentCenter.X, STORM_HEIGHT / 2, currentCenter.Z)
     stormPart.Shape = Enum.PartType.Cylinder
     stormPart.Orientation = Vector3.new(0, 0, 90) -- Rotate to be vertical
@@ -108,7 +118,7 @@ function StormService:CreateStormVisual()
     innerPart.CanCollide = false
     innerPart.CastShadow = false
     innerPart.Transparency = 1
-    innerPart.Size = Vector3.new((currentRadius - 5) * 2, STORM_HEIGHT + 10, (currentRadius - 5) * 2)
+    innerPart.Size = Vector3.new(STORM_HEIGHT + 10, (currentRadius - 5) * 2, (currentRadius - 5) * 2)
     innerPart.Position = stormPart.Position
     innerPart.Shape = Enum.PartType.Cylinder
     innerPart.Orientation = Vector3.new(0, 0, 90)
@@ -126,16 +136,17 @@ function StormService:CreateStormVisual()
     particles.SpreadAngle = Vector2.new(180, 180)
     particles.Parent = stormPart
 
-    -- Parent to workspace (initially hidden)
+    -- Parent to workspace (initially hidden until match starts)
     stormPart.Parent = workspace
     stormPart.Transparency = 1
 
-    framework.Log("Debug", "Storm visual created")
+    framework.Log("Debug", "Storm visual created with initial radius: %d", initialRadius)
 end
 
 --[[
     Start the storm progression
-    In test mode, storm is much slower and has a larger initial radius
+    Storm starts OUTSIDE the map perimeter and shrinks inward over 20 minutes
+    Includes grace period at start where no damage is dealt
 ]]
 function StormService:StartStorm()
     if isActive then
@@ -145,14 +156,17 @@ function StormService:StartStorm()
 
     isActive = true
     currentPhase = 0
+    inGracePeriod = true
 
-    -- Reset to initial state - use larger radius in test mode
-    local baseRadius = gameConfig.Storm.visualRadius
+    -- Reset to initial state - storm starts OUTSIDE the map
+    -- initialRadius should be larger than mapRadius to ensure all players start safe
+    local baseRadius = gameConfig.Storm.initialRadius or 1500
     if gameConfig.TestMode and gameConfig.TestMode.enabled then
-        baseRadius = baseRadius * 1.5  -- 50% larger in test mode
+        baseRadius = baseRadius * 1.5  -- Even larger in test mode
         framework.Log("Info", "Storm: Test mode - using larger radius: %d", baseRadius)
     end
     currentRadius = baseRadius
+    targetRadius = baseRadius
 
     -- Get map center from MapService (instead of hardcoded 0,0,0)
     local mapCenter = Vector3.new(0, 0, 0)  -- Fallback
@@ -162,18 +176,107 @@ function StormService:StartStorm()
         framework.Log("Debug", "Storm using map center from MapService: %s", tostring(mapCenter))
     end
     currentCenter = mapCenter
+    targetCenter = mapCenter
 
     -- Show storm visual
     stormPart.Transparency = STORM_TRANSPARENCY
     self:UpdateStormVisual()
 
-    -- Start phase progression
-    self:StartPhaseProgression()
+    -- Start grace period countdown, then phase progression
+    self:StartGracePeriod()
 
-    -- Start damage loop
-    self:StartDamageLoop()
+    framework.Log("Info", "Storm started - initial radius: %d studs, grace period: %d seconds",
+        currentRadius, gameConfig.Storm.gracePeriod or 60)
+end
 
-    framework.Log("Info", "Storm started")
+--[[
+    Start the grace period before storm damage begins
+    Players can loot and position without taking storm damage
+]]
+function StormService:StartGracePeriod()
+    local gracePeriod = gameConfig.Storm.gracePeriod or 60
+
+    -- In test mode, extend grace period
+    if gameConfig.TestMode and gameConfig.TestMode.enabled then
+        gracePeriod = gracePeriod * 2
+    end
+
+    graceTimeRemaining = gracePeriod
+    inGracePeriod = true
+
+    -- Broadcast grace period start
+    self:BroadcastGracePeriod(gracePeriod)
+
+    task.spawn(function()
+        while graceTimeRemaining > 0 and isActive do
+            task.wait(1)
+            graceTimeRemaining = graceTimeRemaining - 1
+
+            -- Broadcast countdown at key intervals
+            if graceTimeRemaining == 30 or graceTimeRemaining == 10 or graceTimeRemaining <= 5 then
+                self:BroadcastGracePeriodCountdown(graceTimeRemaining)
+            end
+        end
+
+        if isActive then
+            inGracePeriod = false
+            framework.Log("Info", "Storm grace period ended - damage now active")
+
+            -- Broadcast grace period end
+            self:BroadcastGracePeriodEnd()
+
+            -- Start phase progression
+            self:StartPhaseProgression()
+
+            -- Start damage loop
+            self:StartDamageLoop()
+        end
+    end)
+end
+
+--[[
+    Broadcast grace period start to clients
+]]
+function StormService:BroadcastGracePeriod(duration)
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local stormWarning = remotes:FindFirstChild("StormWarning")
+        if stormWarning then
+            stormWarning:FireAllClients(duration, 0)  -- Phase 0 = grace period
+        end
+    end
+end
+
+--[[
+    Broadcast grace period countdown
+]]
+function StormService:BroadcastGracePeriodCountdown(seconds)
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local stormWarning = remotes:FindFirstChild("StormWarning")
+        if stormWarning then
+            stormWarning:FireAllClients(seconds, 0)
+        end
+    end
+end
+
+--[[
+    Broadcast grace period end
+]]
+function StormService:BroadcastGracePeriodEnd()
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local stormPhase = remotes:FindFirstChild("StormPhaseChanged")
+        if stormPhase then
+            stormPhase:FireAllClients({
+                phase = 0,
+                message = "Storm is now active!",
+                targetRadius = currentRadius,
+                targetCenter = currentCenter,
+                damage = 0,
+            })
+        end
+    end
 end
 
 --[[
@@ -309,9 +412,15 @@ end
 
 --[[
     Apply damage to players outside the safe zone
+    No damage during grace period
     Damage is reduced in test mode for easier exploration
 ]]
 function StormService:ApplyStormDamage()
+    -- No damage during grace period
+    if inGracePeriod then
+        return
+    end
+
     local damage = self:GetCurrentDamage()
     if damage <= 0 then return end
 
@@ -404,6 +513,8 @@ end
 ]]
 function StormService:StopStorm()
     isActive = false
+    inGracePeriod = true  -- Reset grace period flag
+    graceTimeRemaining = 0
 
     -- Cancel any active tweens
     if shrinkTween then
@@ -416,9 +527,12 @@ function StormService:StopStorm()
         stormPart.Transparency = 1
     end
 
+    -- Reset to initial state
     currentPhase = 0
+    currentRadius = gameConfig.Storm.initialRadius or 1500
+    targetRadius = currentRadius
 
-    framework.Log("Info", "Storm stopped")
+    framework.Log("Info", "Storm stopped and reset")
 end
 
 --[[
@@ -433,6 +547,8 @@ function StormService:GetState()
         currentCenter = currentCenter,
         targetCenter = targetCenter,
         damage = self:GetCurrentDamage(),
+        inGracePeriod = inGracePeriod,
+        graceTimeRemaining = graceTimeRemaining,
     }
 end
 

@@ -154,58 +154,82 @@ end
 
 --[[
     Generate default chest locations (fallback for test mode)
-    Creates chests at various positions around the map center
+    Creates chests distributed across the map with higher concentration near POI areas
+    Industry standard: ~30-50 chests per battle royale map
 ]]
 function LootSystem:GenerateDefaultChests()
-    -- Generate 10-15 test chests around the map
-    local chestCount = math.random(10, 15)
-    local mapRadius = 400
+    -- Generate 30-40 chests distributed across the map
+    local baseChestCount = 35
+    local mapRadius = 800  -- Cover most of the map
 
-    for i = 1, chestCount do
-        local angle = (i / chestCount) * math.pi * 2
-        local radius = math.random(50, mapRadius)
-        local x = math.cos(angle) * radius
-        local z = math.sin(angle) * radius
+    -- Create ring patterns at different distances for good distribution
+    local rings = {
+        {radius = 100, count = 5, baseRarity = "rare"},      -- Inner ring (near spawn)
+        {radius = 300, count = 10, baseRarity = "uncommon"}, -- Mid ring
+        {radius = 500, count = 10, baseRarity = "uncommon"}, -- Outer mid ring
+        {radius = 700, count = 8, baseRarity = "common"},    -- Outer ring
+    }
 
+    -- Add some epic/legendary chests at random locations
+    local epicCount = 3
+    for i = 1, epicCount do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(200, 600)
         table.insert(chests, {
-            position = Vector3.new(x, 10, z),
+            position = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius),
             opened = false,
             model = nil,
-            rarity = (i <= 2) and "epic" or ((i <= 5) and "rare" or "uncommon"),
+            rarity = (i == 1) and "legendary" or "epic",
         })
     end
 
-    framework.Log("Warn", "Generated %d default chests for testing", #chests)
-end
+    -- Generate ring-based chests
+    for _, ring in ipairs(rings) do
+        for i = 1, ring.count do
+            local angle = (i / ring.count) * math.pi * 2 + math.random() * 0.3  -- Slight randomization
+            local radiusVariation = ring.radius + (math.random() - 0.5) * 100
+            local x = math.cos(angle) * radiusVariation
+            local z = math.sin(angle) * radiusVariation
 
---[[
-    Generate default spawn points (fallback)
-]]
-function LootSystem:GenerateDefaultSpawnPoints()
-    -- Create a grid of spawn points
-    local gridSize = 20
-    local spacing = 50
-    local startPos = Vector3.new(-500, 5, -500)
-
-    for x = 0, gridSize - 1 do
-        for z = 0, gridSize - 1 do
-            -- Add some randomness
-            local offsetX = (math.random() - 0.5) * spacing * 0.5
-            local offsetZ = (math.random() - 0.5) * spacing * 0.5
-
-            table.insert(spawnPoints, {
-                position = startPos + Vector3.new(
-                    x * spacing + offsetX,
-                    0,
-                    z * spacing + offsetZ
-                ),
-                type = "any",
-                rarity = nil,
+            table.insert(chests, {
+                position = Vector3.new(x, 0, z),
+                opened = false,
+                model = nil,
+                rarity = ring.baseRarity,
             })
         end
     end
 
-    framework.Log("Warn", "Generated %d default spawn points", #spawnPoints)
+    framework.Log("Warn", "Generated %d default chests for testing (fallback mode)", #chests)
+end
+
+--[[
+    Generate default spawn points (fallback)
+    Uses industry-standard FPS loot density: ~1 spawn per 40-60 square studs
+    Map size is 2000x2000 = 4M sq studs, targeting ~800-1600 loot spawns
+]]
+function LootSystem:GenerateDefaultSpawnPoints()
+    -- Create a grid of spawn points covering the full map
+    local mapHalfSize = 900  -- Slightly smaller than MAP_SIZE/2 to avoid edge
+    local spacing = 50  -- Studs between potential loot spawns (standard FPS density)
+
+    local count = 0
+    for x = -mapHalfSize, mapHalfSize, spacing do
+        for z = -mapHalfSize, mapHalfSize, spacing do
+            -- Add some randomness to avoid grid-like appearance
+            local offsetX = (math.random() - 0.5) * spacing * 0.6
+            local offsetZ = (math.random() - 0.5) * spacing * 0.6
+
+            table.insert(spawnPoints, {
+                position = Vector3.new(x + offsetX, 0, z + offsetZ),
+                type = "any",
+                rarity = nil,
+            })
+            count = count + 1
+        end
+    end
+
+    framework.Log("Warn", "Generated %d default loot spawn points (fallback mode)", count)
 end
 
 --[[
@@ -357,6 +381,7 @@ end
 
 --[[
     Spawn all loot for match start
+    Refreshes spawn points from MapService to ensure we have the latest data
 ]]
 function LootSystem:SpawnAllLoot()
     if isActive then
@@ -366,6 +391,9 @@ function LootSystem:SpawnAllLoot()
 
     isActive = true
     groundLoot = {}
+
+    -- Refresh spawn points from MapService (may have been generated after our Initialize)
+    self:LoadSpawnPoints()
 
     local density = gameConfig.Loot.density
     local spawnChance = 1.0
@@ -379,6 +407,9 @@ function LootSystem:SpawnAllLoot()
     end
 
     local spawnedCount = 0
+
+    framework.Log("Info", "Spawning loot at %d spawn points with density '%s' (chance: %.0f%%)",
+        #spawnPoints, density, spawnChance * 100)
 
     for _, spawnPoint in ipairs(spawnPoints) do
         if math.random() <= spawnChance then
@@ -479,14 +510,14 @@ end
     Select specific item from loot table
 ]]
 function LootSystem:SelectItem(lootType, forcedRarity)
-    local table = lootTables[lootType]
-    if not table then return nil end
+    local lootTable = lootTables[lootType]
+    if not lootTable then return nil end
 
     -- Filter by rarity if forced
     local validItems = {}
     local totalWeight = 0
 
-    for _, item in ipairs(table) do
+    for _, item in ipairs(lootTable) do
         if not forcedRarity or item.rarity == forcedRarity then
             table.insert(validItems, item)
             totalWeight = totalWeight + item.weight
@@ -495,7 +526,7 @@ function LootSystem:SelectItem(lootType, forcedRarity)
 
     -- If no valid items with forced rarity, use all items
     if #validItems == 0 then
-        validItems = table
+        validItems = lootTable
         totalWeight = 0
         for _, item in ipairs(validItems) do
             totalWeight = totalWeight + item.weight
@@ -527,11 +558,28 @@ function LootSystem:CreateLootModel(lootData)
         lootFolder.Parent = workspace
     end
 
+    -- Raycast to find ground level for proper placement
+    local spawnPos = lootData.position
+    local rayOrigin = Vector3.new(spawnPos.X, 500, spawnPos.Z)  -- Start high
+    local rayDirection = Vector3.new(0, -600, 0)  -- Ray down
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("GroundLoot") or workspace}
+    raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
+
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    local groundY = 5  -- Default to base terrain height if no ground found
+
+    if result then
+        groundY = result.Position.Y
+    end
+
     -- Create simple part for now
     local model = Instance.new("Part")
     model.Name = lootData.id
     model.Size = Vector3.new(2, 1, 2)
-    model.Position = lootData.position + Vector3.new(0, 0.5, 0)
+    model.Position = Vector3.new(spawnPos.X, groundY + 0.5, spawnPos.Z)
     model.Anchored = true
     model.CanCollide = false
 
@@ -807,6 +855,25 @@ function LootSystem:SpawnChest(chestData)
         chestFolder.Parent = workspace
     end
 
+    -- Raycast to find ground level for proper placement
+    local spawnPos = chestData.position
+    local rayOrigin = Vector3.new(spawnPos.X, 500, spawnPos.Z)  -- Start high
+    local rayDirection = Vector3.new(0, -600, 0)  -- Ray down
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Chests") or workspace}
+    raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
+
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    local groundY = spawnPos.Y or 5  -- Default to provided Y or base terrain height
+
+    if result then
+        groundY = result.Position.Y
+    end
+
+    local adjustedPosition = Vector3.new(spawnPos.X, groundY + 1, spawnPos.Z)  -- +1 to sit on ground
+
     -- Create chest model
     local chest = Instance.new("Model")
     chest.Name = "Chest"
@@ -815,7 +882,7 @@ function LootSystem:SpawnChest(chestData)
     local base = Instance.new("Part")
     base.Name = "Base"
     base.Size = Vector3.new(3, 2, 2)
-    base.Position = chestData.position
+    base.Position = adjustedPosition
     base.Anchored = true
     base.CanCollide = true
     base.Color = Color3.fromRGB(139, 90, 43)
@@ -826,7 +893,7 @@ function LootSystem:SpawnChest(chestData)
     local lid = Instance.new("Part")
     lid.Name = "Lid"
     lid.Size = Vector3.new(3, 0.5, 2)
-    lid.Position = chestData.position + Vector3.new(0, 1.25, 0)
+    lid.Position = adjustedPosition + Vector3.new(0, 1.25, 0)
     lid.Anchored = true
     lid.CanCollide = false
     lid.Color = Color3.fromRGB(160, 110, 50)
@@ -837,7 +904,7 @@ function LootSystem:SpawnChest(chestData)
     local trim = Instance.new("Part")
     trim.Name = "Trim"
     trim.Size = Vector3.new(3.1, 0.2, 0.2)
-    trim.Position = chestData.position + Vector3.new(0, 1.5, 0.9)
+    trim.Position = adjustedPosition + Vector3.new(0, 1.5, 0.9)
     trim.Anchored = true
     trim.CanCollide = false
     trim.Color = Color3.fromRGB(180, 160, 60)  -- Gold trim

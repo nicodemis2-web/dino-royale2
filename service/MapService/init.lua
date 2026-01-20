@@ -521,6 +521,39 @@ local EVENT_DEFINITIONS = {
 }
 
 --==============================================================================
+-- HELPER FUNCTIONS
+--==============================================================================
+
+--[[
+    Get terrain height at a position using raycasting
+
+    Casts a ray from above downward to find the ground level at the given X, Z position.
+    This ensures assets are properly grounded on the terrain.
+
+    @param x number - X coordinate
+    @param z number - Z coordinate
+    @return number - Y coordinate of ground level, or 0 if no ground found
+]]
+local function GetTerrainHeight(x, z)
+    local rayOrigin = Vector3.new(x, 500, z)
+    local rayDirection = Vector3.new(0, -1000, 0)
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {}
+    raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
+
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+    if result then
+        return result.Position.Y
+    end
+
+    -- Fallback to base terrain height if raycast fails
+    return 5  -- MAP_CONFIG.baseHeight default
+end
+
+--==============================================================================
 -- INITIALIZATION
 --==============================================================================
 
@@ -1072,13 +1105,16 @@ function MapService:CreateVegetation(biome, parent)
         local x = biome.position.X + math.cos(angle) * distance
         local z = biome.position.Z + math.sin(angle) * distance
 
+        -- Get terrain height at this position
+        local groundY = GetTerrainHeight(x, z)
+
         -- Create simple tree placeholder
         local tree = Instance.new("Part")
         tree.Name = "Tree_" .. i
         tree.Anchored = true
         tree.CanCollide = true
         tree.Size = Vector3.new(3, math.random(8, 15), 3)
-        tree.Position = Vector3.new(x, tree.Size.Y / 2, z)
+        tree.Position = Vector3.new(x, groundY + tree.Size.Y / 2, z)
         tree.Material = Enum.Material.Wood
         tree.Color = Color3.fromRGB(101, 67, 33)  -- Brown
         tree.Parent = vegetationFolder
@@ -1089,7 +1125,7 @@ function MapService:CreateVegetation(biome, parent)
         foliage.Anchored = true
         foliage.CanCollide = false
         foliage.Size = Vector3.new(8, 6, 8)
-        foliage.Position = Vector3.new(x, tree.Size.Y + 2, z)
+        foliage.Position = Vector3.new(x, groundY + tree.Size.Y + 2, z)
         foliage.Material = Enum.Material.Grass
         foliage.Color = definition.color
         foliage.Shape = Enum.PartType.Ball
@@ -1140,12 +1176,15 @@ function MapService:CreateHazardFeatures(biome, parent)
             local x = biome.position.X + math.cos(angle) * distance
             local z = biome.position.Z + math.sin(angle) * distance
 
+            -- Get terrain height at this position
+            local groundY = GetTerrainHeight(x, z)
+
             local lava = Instance.new("Part")
             lava.Name = "LavaPool_" .. i
             lava.Anchored = true
             lava.CanCollide = false
             lava.Size = Vector3.new(math.random(10, 25), 1, math.random(10, 25))
-            lava.Position = Vector3.new(x, 0.5, z)
+            lava.Position = Vector3.new(x, groundY + 0.5, z)
             lava.Material = Enum.Material.CrackedLava
             lava.Color = Color3.fromRGB(255, 100, 0)
             lava.Parent = hazardFolder
@@ -1178,13 +1217,16 @@ function MapService:CreatePOIStructure(poi, parent)
     poiFolder.Name = poi.id
     poiFolder.Parent = parent
 
+    -- Get terrain height at POI position
+    local groundY = GetTerrainHeight(poi.position.X, poi.position.Z)
+
     -- Create base platform/structure
     local base = Instance.new("Part")
     base.Name = "Base"
     base.Anchored = true
     base.CanCollide = true
     base.Size = definition.size
-    base.Position = poi.position
+    base.Position = Vector3.new(poi.position.X, groundY + definition.size.Y / 2, poi.position.Z)
 
     -- Set material based on POI type
     if definition.biome == "facility" then

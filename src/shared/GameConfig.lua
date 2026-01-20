@@ -91,14 +91,20 @@ GameConfig.Modes = {
 
 --=============================================================================
 -- STORM/ZONE CONFIGURATION
--- Shrinking safe zone mechanics - designed for fast-paced action
+-- Shrinking safe zone mechanics - Industry-standard battle royale storm
+-- Based on Fortnite/PUBG best practices for 20-minute match length
+-- Storm starts OUTSIDE the map and progressively shrinks inward
 --=============================================================================
 
 GameConfig.Storm = {
     enabled = true,
-    damageInterval = 0.5,          -- Seconds between damage ticks
-    warningTime = 10,              -- Seconds warning before zone moves
-    visualRadius = 1000,           -- Initial visual storm radius
+    damageInterval = 1.0,          -- Seconds between damage ticks (industry standard)
+    warningTime = 30,              -- Seconds warning before zone moves
+    initialRadius = 1500,          -- Starting radius - LARGER than map (map is ~1000 radius)
+    mapRadius = 1000,              -- Actual playable map radius (for reference)
+
+    -- Grace period - no storm damage at match start
+    gracePeriod = 60,              -- 60 seconds before storm activates (allows looting/positioning)
 
     -- Storm visuals
     stormColor = Color3.fromRGB(100, 50, 150),
@@ -106,48 +112,87 @@ GameConfig.Storm = {
     safeZoneColor = Color3.fromRGB(50, 200, 255),
 
     --[[
-        Storm Phases
-        Each phase defines:
-        - delay: Wait time before phase starts
-        - shrinkTime: Duration of zone shrinking
-        - endRadius: Zone radius after shrinking
-        - damage: Damage per tick outside zone
-        - centerOffset: How much center can shift (% of radius)
+        Storm Phases - Designed for 20-minute match
+        Following Fortnite-style progression:
+        - Early phases: Long delays, slow shrink, low damage (exploration/looting)
+        - Mid phases: Moderate timing, increasing damage (mid-game fights)
+        - Late phases: Fast shrink, high damage (endgame pressure)
+
+        Total time breakdown (~20 minutes):
+        - Grace period: 1 min
+        - Phase 1: 2 min wait + 2 min shrink = 4 min
+        - Phase 2: 2 min wait + 2 min shrink = 4 min
+        - Phase 3: 1.5 min wait + 1.5 min shrink = 3 min
+        - Phase 4: 1 min wait + 1 min shrink = 2 min
+        - Phase 5: 1 min wait + 1 min shrink = 2 min
+        - Phase 6: 30s wait + 1 min shrink = 1.5 min
+        - Phase 7: 0s wait + 45s shrink = 45s
+        - Phase 8: 0s wait + 30s shrink = 30s (final close)
+        Total: ~19 minutes
     ]]
     phases = {
+        -- Phase 1: First shrink - very forgiving, players still looting
         {
-            delay = 30,
-            shrinkTime = 20,
-            endRadius = 200,
-            damage = 1,
-            centerOffset = 0.3,
+            delay = 120,           -- 2 minute wait
+            shrinkTime = 120,      -- 2 minute shrink
+            endRadius = 800,       -- Shrink to 800 (still covers most of map)
+            damage = 1,            -- Minimal damage
+            centerOffset = 0.1,    -- Slight center shift
         },
+        -- Phase 2: Second shrink - moderate pressure
         {
-            delay = 20,
-            shrinkTime = 15,
-            endRadius = 120,
-            damage = 2,
-            centerOffset = 0.25,
-        },
-        {
-            delay = 15,
-            shrinkTime = 12,
-            endRadius = 60,
-            damage = 4,
-            centerOffset = 0.2,
-        },
-        {
-            delay = 10,
-            shrinkTime = 10,
-            endRadius = 25,
-            damage = 8,
+            delay = 120,           -- 2 minute wait
+            shrinkTime = 120,      -- 2 minute shrink
+            endRadius = 500,       -- Medium zone
+            damage = 1,            -- Still low damage
             centerOffset = 0.15,
         },
+        -- Phase 3: Mid-game - action picks up
         {
-            delay = 5,
-            shrinkTime = 8,
-            endRadius = 0,         -- Final close
-            damage = 16,
+            delay = 90,            -- 1.5 minute wait
+            shrinkTime = 90,       -- 1.5 minute shrink
+            endRadius = 300,       -- Getting smaller
+            damage = 2,            -- Increased damage
+            centerOffset = 0.2,
+        },
+        -- Phase 4: Late mid-game - pressure increases
+        {
+            delay = 60,            -- 1 minute wait
+            shrinkTime = 60,       -- 1 minute shrink
+            endRadius = 150,       -- Small zone
+            damage = 5,            -- Significant damage
+            centerOffset = 0.2,
+        },
+        -- Phase 5: Endgame begins
+        {
+            delay = 60,            -- 1 minute wait
+            shrinkTime = 60,       -- 1 minute shrink
+            endRadius = 75,        -- Very small
+            damage = 8,            -- High damage
+            centerOffset = 0.15,
+        },
+        -- Phase 6: Endgame pressure
+        {
+            delay = 30,            -- 30 second wait
+            shrinkTime = 60,       -- 1 minute shrink
+            endRadius = 30,        -- Tiny zone
+            damage = 10,           -- Very high damage
+            centerOffset = 0.1,
+        },
+        -- Phase 7: Final phases - no wait time (Fortnite style)
+        {
+            delay = 0,             -- Immediate
+            shrinkTime = 45,       -- 45 second shrink
+            endRadius = 10,        -- Almost closed
+            damage = 10,
+            centerOffset = 0.05,
+        },
+        -- Phase 8: Complete close
+        {
+            delay = 0,             -- Immediate
+            shrinkTime = 30,       -- 30 second final close
+            endRadius = 0,         -- Complete close
+            damage = 10,
             centerOffset = 0,
         },
     },

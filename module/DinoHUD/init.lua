@@ -44,6 +44,7 @@ function DinoHUD:Initialize()
     self:CreateScreenGui()
 
     -- Create all HUD components
+    self:CreateCrosshair()
     self:CreateHealthBar()
     self:CreateWeaponHotbar()
     self:CreateMinimap()
@@ -73,15 +74,163 @@ function DinoHUD:CreateScreenGui()
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = player:WaitForChild("PlayerGui")
 
-    -- Main HUD frame
+    -- Main HUD frame (transparent container that doesn't block mouse input)
     hudFrame = Instance.new("Frame")
     hudFrame.Name = "HUDFrame"
     hudFrame.Size = UDim2.new(1, 0, 1, 0)
     hudFrame.BackgroundTransparency = 1
+    hudFrame.Active = false  -- Don't intercept mouse clicks
     hudFrame.Parent = screenGui
 
     components.screenGui = screenGui
     components.hudFrame = hudFrame
+end
+
+--[[
+    Create crosshair/aimpoint at center of screen
+    White dot with optional cross lines for precise aiming
+]]
+function DinoHUD:CreateCrosshair()
+    local crosshairContainer = Instance.new("Frame")
+    crosshairContainer.Name = "Crosshair"
+    crosshairContainer.Size = UDim2.new(0, 50, 0, 50)
+    crosshairContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+    crosshairContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+    crosshairContainer.BackgroundTransparency = 1
+    crosshairContainer.Active = false  -- Don't block mouse input
+    crosshairContainer.Parent = hudFrame
+
+    -- Center dot (main aimpoint)
+    local centerDot = Instance.new("Frame")
+    centerDot.Name = "CenterDot"
+    centerDot.Size = UDim2.new(0, 4, 0, 4)
+    centerDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+    centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+    centerDot.BackgroundColor3 = Color3.new(1, 1, 1)  -- White
+    centerDot.BorderSizePixel = 0
+    centerDot.Parent = crosshairContainer
+
+    local dotCorner = Instance.new("UICorner")
+    dotCorner.CornerRadius = UDim.new(1, 0)  -- Make it circular
+    dotCorner.Parent = centerDot
+
+    -- Add subtle black outline for visibility on light backgrounds
+    local dotStroke = Instance.new("UIStroke")
+    dotStroke.Color = Color3.new(0, 0, 0)
+    dotStroke.Thickness = 1
+    dotStroke.Transparency = 0.5
+    dotStroke.Parent = centerDot
+
+    -- Top line
+    local topLine = Instance.new("Frame")
+    topLine.Name = "TopLine"
+    topLine.Size = UDim2.new(0, 2, 0, 10)
+    topLine.Position = UDim2.new(0.5, 0, 0.5, -8)
+    topLine.AnchorPoint = Vector2.new(0.5, 1)
+    topLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    topLine.BorderSizePixel = 0
+    topLine.Parent = crosshairContainer
+
+    -- Bottom line
+    local bottomLine = Instance.new("Frame")
+    bottomLine.Name = "BottomLine"
+    bottomLine.Size = UDim2.new(0, 2, 0, 10)
+    bottomLine.Position = UDim2.new(0.5, 0, 0.5, 8)
+    bottomLine.AnchorPoint = Vector2.new(0.5, 0)
+    bottomLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    bottomLine.BorderSizePixel = 0
+    bottomLine.Parent = crosshairContainer
+
+    -- Left line
+    local leftLine = Instance.new("Frame")
+    leftLine.Name = "LeftLine"
+    leftLine.Size = UDim2.new(0, 10, 0, 2)
+    leftLine.Position = UDim2.new(0.5, -8, 0.5, 0)
+    leftLine.AnchorPoint = Vector2.new(1, 0.5)
+    leftLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    leftLine.BorderSizePixel = 0
+    leftLine.Parent = crosshairContainer
+
+    -- Right line
+    local rightLine = Instance.new("Frame")
+    rightLine.Name = "RightLine"
+    rightLine.Size = UDim2.new(0, 10, 0, 2)
+    rightLine.Position = UDim2.new(0.5, 8, 0.5, 0)
+    rightLine.AnchorPoint = Vector2.new(0, 0.5)
+    rightLine.BackgroundColor3 = Color3.new(1, 1, 1)
+    rightLine.BorderSizePixel = 0
+    rightLine.Parent = crosshairContainer
+
+    -- Add black outlines to cross lines for visibility
+    for _, line in ipairs({topLine, bottomLine, leftLine, rightLine}) do
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Color3.new(0, 0, 0)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.5
+        stroke.Parent = line
+    end
+
+    components.crosshair = {
+        container = crosshairContainer,
+        centerDot = centerDot,
+        topLine = topLine,
+        bottomLine = bottomLine,
+        leftLine = leftLine,
+        rightLine = rightLine,
+    }
+end
+
+--[[
+    Show hit marker on crosshair (visual feedback when hitting target)
+    @param isHeadshot boolean - Whether the hit was a headshot (shows different color)
+]]
+function DinoHUD:ShowHitMarker(isHeadshot)
+    if not components.crosshair then return end
+
+    local color = isHeadshot and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 255)
+
+    -- Flash the crosshair lines
+    for _, line in ipairs({
+        components.crosshair.topLine,
+        components.crosshair.bottomLine,
+        components.crosshair.leftLine,
+        components.crosshair.rightLine
+    }) do
+        line.BackgroundColor3 = color
+
+        -- Animate back to white
+        task.delay(0.1, function()
+            if line and line.Parent then
+                line.BackgroundColor3 = Color3.new(1, 1, 1)
+            end
+        end)
+    end
+end
+
+--[[
+    Set crosshair visibility
+    @param visible boolean
+]]
+function DinoHUD:SetCrosshairVisible(visible)
+    if components.crosshair and components.crosshair.container then
+        components.crosshair.container.Visible = visible
+    end
+end
+
+--[[
+    Set crosshair spread (for accuracy visualization)
+    @param spread number - Spread amount in pixels (0 = tight, higher = more spread)
+]]
+function DinoHUD:SetCrosshairSpread(spread)
+    if not components.crosshair then return end
+
+    local baseOffset = 8
+    local offset = baseOffset + spread
+
+    components.crosshair.topLine.Position = UDim2.new(0.5, 0, 0.5, -offset)
+    components.crosshair.bottomLine.Position = UDim2.new(0.5, 0, 0.5, offset)
+    components.crosshair.leftLine.Position = UDim2.new(0.5, -offset, 0.5, 0)
+    components.crosshair.rightLine.Position = UDim2.new(0.5, offset, 0.5, 0)
 end
 
 --[[
@@ -175,6 +324,7 @@ function DinoHUD:CreateWeaponHotbar()
     container.Position = UDim2.new(0.5, 0, 1, -20)
     container.AnchorPoint = Vector2.new(0.5, 1)
     container.BackgroundTransparency = 1
+    container.Active = false  -- Don't intercept mouse clicks
     container.Parent = hudFrame
 
     local layout = Instance.new("UIListLayout")
@@ -635,20 +785,53 @@ end
 
 --[[
     Update weapon slot display
+    @param slotIndex number - Slot index (1-5)
+    @param weaponData table - Weapon data from server (may have flat structure or nested config)
 ]]
 function DinoHUD:UpdateWeaponSlot(slotIndex, weaponData)
     local slot = components.weaponSlots[slotIndex]
     if not slot then return end
 
     if weaponData then
-        slot.ammo.Text = string.format("%d/%d", weaponData.currentAmmo, weaponData.config.magazineSize)
-        slot.frame.BackgroundColor3 = gameConfig.Loot.rarityColors[weaponData.config.rarity] or Color3.fromRGB(30, 30, 30)
+        -- Handle both flat (from server) and nested (config) data structures
+        local currentAmmo = weaponData.currentAmmo or 0
+        local magazineSize = weaponData.magazineSize or (weaponData.config and weaponData.config.magazineSize) or 30
+        local rarity = weaponData.rarity or (weaponData.config and weaponData.config.rarity) or "common"
+        local weaponName = weaponData.name or weaponData.type or "Weapon"
+
+        slot.ammo.Text = string.format("%d/%d", currentAmmo, magazineSize)
+        slot.frame.BackgroundColor3 = gameConfig.Loot.rarityColors[rarity] or Color3.fromRGB(30, 30, 30)
         slot.frame.BackgroundTransparency = 0.5
+
+        -- Show weapon name as tooltip or in slot
+        -- Could add a name label here if desired
     else
         slot.ammo.Text = ""
         slot.frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
         slot.frame.BackgroundTransparency = 0.7
     end
+end
+
+--[[
+    Update all weapon slots from inventory data
+    @param slots table - Slots data from server {[1] = weaponData, [2] = weaponData, ...}
+]]
+function DinoHUD:UpdateWeaponSlots(slots)
+    if not slots then return end
+
+    for i = 1, 5 do
+        self:UpdateWeaponSlot(i, slots[i])
+    end
+end
+
+--[[
+    Update ammo display (reserve ammo by type)
+    @param ammoData table - Ammo counts by type {light = 100, medium = 50, ...}
+]]
+function DinoHUD:UpdateAmmoDisplay(ammoData)
+    -- Store ammo data for later use
+    components.ammoData = ammoData
+    -- Could display reserve ammo somewhere in the HUD
 end
 
 --[[
@@ -1844,7 +2027,10 @@ end
     @return boolean
 ]]
 function DinoHUD:IsSettingsMenuOpen()
-    return components.settingsMenu and components.settingsMenu.Visible
+    if components.settingsMenu then
+        return components.settingsMenu.Visible == true
+    end
+    return false
 end
 
 --=============================================================================
