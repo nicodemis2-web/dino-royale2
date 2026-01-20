@@ -373,6 +373,47 @@ Remotes.OnEvent("ChestOpened", function(data)
 end)
 
 --=============================================================================
+-- SETTINGS STATE
+-- Track current settings from HUD settings menu
+--=============================================================================
+
+local mouseSettings = {
+    sensitivity = 1.0,
+    adsMultiplier = 0.5,
+    invertY = false,
+    mouseLock = true,
+    scrollWheelWeaponSwitch = true,
+    autoFire = true,
+}
+
+-- Register for settings changes from HUD
+hud:OnSettingsChanged(function(settingName, newValue)
+    print(string.format("[DinoRoyale Client] Setting changed: %s = %s", settingName, tostring(newValue)))
+
+    if settingName == "mouseSensitivity" then
+        mouseSettings.sensitivity = newValue
+    elseif settingName == "adsMouseMultiplier" then
+        mouseSettings.adsMultiplier = newValue
+    elseif settingName == "invertMouseY" then
+        mouseSettings.invertY = newValue
+    elseif settingName == "mouseLock" then
+        mouseSettings.mouseLock = newValue
+        -- Apply mouse lock setting immediately (unless settings menu is open)
+        if not hud:IsSettingsMenuOpen() then
+            if newValue then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            else
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end
+        end
+    elseif settingName == "scrollWheelWeaponSwitch" then
+        mouseSettings.scrollWheelWeaponSwitch = newValue
+    elseif settingName == "autoFire" then
+        mouseSettings.autoFire = newValue
+    end
+end)
+
+--=============================================================================
 -- INPUT HANDLING
 -- Process keyboard/mouse input for game controls
 -- Input is validated client-side then sent to server for authorization
@@ -381,8 +422,10 @@ end)
 --[[
     Keyboard Controls:
     - 1-5: Select weapon slot
-    - Tab: Toggle inventory screen (not implemented)
-    - M: Toggle fullscreen map (not implemented)
+    - Tab: Toggle inventory screen
+    - M: Toggle fullscreen map
+    - ESC: Toggle settings menu
+    - R: Reload weapon
 
     Note: gameProcessed=true means Roblox UI consumed the input
     (e.g., typing in chat) - we should ignore these inputs
@@ -390,6 +433,17 @@ end)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     -- Ignore inputs that were consumed by Roblox UI (chat, menus, etc.)
     if gameProcessed then return end
+
+    -- ESC key - toggle settings menu
+    if input.KeyCode == Enum.KeyCode.Escape then
+        hud:ToggleSettingsMenu()
+        return  -- Don't process other inputs when toggling settings
+    end
+
+    -- If settings menu is open, ignore gameplay inputs
+    if hud:IsSettingsMenuOpen() then
+        return
+    end
 
     -- Number keys 1-5 map to weapon slots
     local slotKeys = {
@@ -457,26 +511,36 @@ end
 --[[
     Fire the equipped weapon
     Sends fire request to server with aim direction
+    Server will perform raycast for hit detection
 ]]
 local function fireWeapon()
     if not clientState.isAlive then return end
     if clientState.gameState ~= "Match" and clientState.gameState ~= "Lobby" then return end
 
     local origin, direction = getMouseRay()
-    Remotes.FireServer("WeaponFire", origin, direction)
+
+    -- Send as a table with origin and direction for server to raycast
+    Remotes.FireServer("WeaponFire", {
+        origin = origin,
+        direction = direction,
+        slotIndex = clientState.selectedWeaponSlot,
+    })
 end
 
 -- Handle mouse button down (start firing)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
+    -- Don't process mouse input if settings menu is open
+    if hud:IsSettingsMenuOpen() then return end
+
     -- Left mouse button - Fire weapon
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isMouseDown = true
         fireWeapon()
 
-        -- Start continuous firing for automatic weapons
-        if not fireConnection then
+        -- Start continuous firing for automatic weapons (if auto-fire is enabled)
+        if mouseSettings.autoFire and not fireConnection then
             fireConnection = RunService.Heartbeat:Connect(function()
                 if isMouseDown and clientState.isAlive then
                     fireWeapon()
@@ -488,7 +552,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     -- Right mouse button - Aim down sights (ADS)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = true
-        Remotes.FireServer("WeaponAim", true)
+        -- Note: WeaponAim remote may not exist yet - it's optional
+        pcall(function()
+            Remotes.FireServer("WeaponAim", true)
+        end)
         -- Could also adjust camera FOV here for zoom effect
     end
 end)
@@ -507,7 +574,10 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     -- Right mouse button released - Stop aiming
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         isAiming = false
-        Remotes.FireServer("WeaponAim", false)
+        -- Note: WeaponAim remote may not exist yet - it's optional
+        pcall(function()
+            Remotes.FireServer("WeaponAim", false)
+        end)
     end
 end)
 
@@ -519,7 +589,11 @@ UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 UserInputService.InputChanged:Connect(function(input, gameProcessed)
     if gameProcessed then return end
 
-    if input.UserInputType == Enum.UserInputType.MouseWheel then
+    -- Don't process if settings menu is open
+    if hud:IsSettingsMenuOpen() then return end
+
+    -- Only process scroll wheel if the setting is enabled
+    if input.UserInputType == Enum.UserInputType.MouseWheel and mouseSettings.scrollWheelWeaponSwitch then
         local scroll = input.Position.Z  -- Positive = up, Negative = down
 
         if scroll > 0 then

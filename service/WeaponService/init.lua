@@ -1152,29 +1152,89 @@ end
 
 --[[
     Fire hitscan weapon
+    Performs server-side raycast for hit detection
     @param player Player
     @param weapon table
-    @param data table
+    @param data table {origin: Vector3, direction: Vector3}
 ]]
 function WeaponService:FireHitscan(player, weapon, data)
-    if data.hit then
-        self:ProcessHit(player, weapon, data.hit, data.hitPosition, data.hitPart)
+    -- Validate origin and direction
+    if not data.origin or not data.direction then
+        framework.Log("Warn", "FireHitscan: Missing origin or direction data")
+        return
+    end
+
+    -- Get weapon range (default 500 studs)
+    local range = weapon.config.range or 500
+
+    -- Create raycast parameters
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {player.Character}
+    raycastParams.IgnoreWater = true
+
+    -- Normalize direction and apply range
+    local direction = data.direction.Unit * range
+
+    -- Perform server-side raycast
+    local result = workspace:Raycast(data.origin, direction, raycastParams)
+
+    if result then
+        -- We hit something - process the hit
+        local hitInstance = result.Instance
+        local hitPosition = result.Position
+        local hitPartName = hitInstance.Name
+
+        self:ProcessHit(player, weapon, hitInstance, hitPosition, hitPartName)
     end
 end
 
 --[[
     Fire shotgun (multiple pellets)
+    Performs server-side raycast for each pellet
     @param player Player
     @param weapon table
-    @param data table
+    @param data table {origin: Vector3, direction: Vector3}
 ]]
 function WeaponService:FireShotgun(player, weapon, data)
-    if data.pelletHits then
-        for _, pelletHit in ipairs(data.pelletHits) do
-            self:ProcessHit(player, weapon, pelletHit.hit, pelletHit.position, pelletHit.part)
+    -- Validate origin and direction
+    if not data.origin or not data.direction then
+        framework.Log("Warn", "FireShotgun: Missing origin or direction data")
+        return
+    end
+
+    -- Get weapon config
+    local config = weapon.config
+    local pellets = config.pellets or 8
+    local spread = config.spread or 5
+    local range = config.range or 50
+
+    -- Create raycast parameters
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {player.Character}
+    raycastParams.IgnoreWater = true
+
+    -- Fire multiple pellets with spread
+    local baseDirection = data.direction.Unit
+
+    for _ = 1, pellets do
+        -- Add random spread to each pellet
+        local spreadX = (math.random() - 0.5) * 2 * spread
+        local spreadY = (math.random() - 0.5) * 2 * spread
+        local spreadAngle = CFrame.Angles(math.rad(spreadY), math.rad(spreadX), 0)
+        local pelletDirection = (CFrame.new(Vector3.new(), baseDirection) * spreadAngle).LookVector * range
+
+        -- Raycast for this pellet
+        local result = workspace:Raycast(data.origin, pelletDirection, raycastParams)
+
+        if result then
+            local hitInstance = result.Instance
+            local hitPosition = result.Position
+            local hitPartName = hitInstance.Name
+
+            self:ProcessHit(player, weapon, hitInstance, hitPosition, hitPartName)
         end
-    elseif data.hit then
-        self:ProcessHit(player, weapon, data.hit, data.hitPosition, data.hitPart)
     end
 end
 

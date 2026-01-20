@@ -1398,6 +1398,456 @@ function DinoHUD:HideSpectatorUI()
 end
 
 --=============================================================================
+-- SETTINGS MENU
+-- Mouse configuration and game options
+--=============================================================================
+
+-- Settings state (defaults)
+local settings = {
+    mouseSensitivity = 1.0,        -- 0.25 to 3.0
+    invertMouseY = false,           -- Invert vertical look
+    mouseLock = true,               -- Lock mouse to center (FPS style)
+    adsMouseMultiplier = 0.5,       -- Sensitivity multiplier when aiming
+    scrollWheelWeaponSwitch = true, -- Use scroll wheel to switch weapons
+    autoFire = true,                -- Hold to fire automatic weapons
+}
+
+-- Callbacks for settings changes
+local settingsCallbacks = {}
+
+--[[
+    Register a callback for settings changes
+    @param callback function(settingName, newValue)
+]]
+function DinoHUD:OnSettingsChanged(callback)
+    table.insert(settingsCallbacks, callback)
+end
+
+--[[
+    Get current settings
+    @return table - Current settings values
+]]
+function DinoHUD:GetSettings()
+    return settings
+end
+
+--[[
+    Update a setting value
+    @param name string - Setting name
+    @param value any - New value
+]]
+function DinoHUD:SetSetting(name, value)
+    if settings[name] ~= nil then
+        settings[name] = value
+        -- Notify all callbacks
+        for _, callback in ipairs(settingsCallbacks) do
+            task.spawn(function()
+                callback(name, value)
+            end)
+        end
+    end
+end
+
+--[[
+    Create settings menu UI
+]]
+function DinoHUD:CreateSettingsMenu()
+    local container = Instance.new("Frame")
+    container.Name = "SettingsMenu"
+    container.Size = UDim2.new(0, 500, 0, 450)
+    container.Position = UDim2.new(0.5, 0, 0.5, 0)
+    container.AnchorPoint = Vector2.new(0.5, 0.5)
+    container.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    container.BackgroundTransparency = 0.05
+    container.Visible = false
+    container.ZIndex = 150
+    container.Parent = hudFrame
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = container
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(80, 80, 90)
+    stroke.Thickness = 2
+    stroke.Parent = container
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, 0, 0, 50)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "SETTINGS"
+    title.TextColor3 = Color3.fromRGB(255, 215, 0)
+    title.TextSize = 28
+    title.Font = Enum.Font.GothamBlack
+    title.Parent = container
+
+    -- Close button
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Name = "CloseButton"
+    closeBtn.Size = UDim2.new(0, 40, 0, 40)
+    closeBtn.Position = UDim2.new(1, -50, 0, 5)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.new(1, 1, 1)
+    closeBtn.TextSize = 20
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.Parent = container
+
+    local closeCorner = Instance.new("UICorner")
+    closeCorner.CornerRadius = UDim.new(0, 8)
+    closeCorner.Parent = closeBtn
+
+    closeBtn.MouseButton1Click:Connect(function()
+        self:ToggleSettingsMenu()
+    end)
+
+    -- Section: Mouse Settings
+    local mouseSection = Instance.new("TextLabel")
+    mouseSection.Name = "MouseSection"
+    mouseSection.Size = UDim2.new(1, -40, 0, 30)
+    mouseSection.Position = UDim2.new(0, 20, 0, 55)
+    mouseSection.BackgroundTransparency = 1
+    mouseSection.Text = "MOUSE CONTROLS"
+    mouseSection.TextColor3 = Color3.fromRGB(150, 150, 160)
+    mouseSection.TextSize = 14
+    mouseSection.Font = Enum.Font.GothamBold
+    mouseSection.TextXAlignment = Enum.TextXAlignment.Left
+    mouseSection.Parent = container
+
+    -- Mouse Sensitivity Slider
+    local sensitivityRow = self:CreateSliderRow(
+        container,
+        "Mouse Sensitivity",
+        UDim2.new(0, 20, 0, 90),
+        0.25, 3.0, settings.mouseSensitivity,
+        function(value)
+            settings.mouseSensitivity = value
+            self:SetSetting("mouseSensitivity", value)
+        end
+    )
+
+    -- ADS Sensitivity Multiplier Slider
+    local adsRow = self:CreateSliderRow(
+        container,
+        "ADS Sensitivity",
+        UDim2.new(0, 20, 0, 145),
+        0.1, 1.0, settings.adsMouseMultiplier,
+        function(value)
+            settings.adsMouseMultiplier = value
+            self:SetSetting("adsMouseMultiplier", value)
+        end
+    )
+
+    -- Invert Mouse Y Toggle
+    local invertRow = self:CreateToggleRow(
+        container,
+        "Invert Mouse Y",
+        UDim2.new(0, 20, 0, 200),
+        settings.invertMouseY,
+        function(value)
+            settings.invertMouseY = value
+            self:SetSetting("invertMouseY", value)
+        end
+    )
+
+    -- Mouse Lock Toggle
+    local lockRow = self:CreateToggleRow(
+        container,
+        "Lock Mouse (FPS Mode)",
+        UDim2.new(0, 20, 0, 250),
+        settings.mouseLock,
+        function(value)
+            settings.mouseLock = value
+            self:SetSetting("mouseLock", value)
+        end
+    )
+
+    -- Scroll Wheel Weapon Switch Toggle
+    local scrollRow = self:CreateToggleRow(
+        container,
+        "Scroll Wheel Switches Weapons",
+        UDim2.new(0, 20, 0, 300),
+        settings.scrollWheelWeaponSwitch,
+        function(value)
+            settings.scrollWheelWeaponSwitch = value
+            self:SetSetting("scrollWheelWeaponSwitch", value)
+        end
+    )
+
+    -- Auto Fire Toggle
+    local autoFireRow = self:CreateToggleRow(
+        container,
+        "Hold to Fire (Auto Weapons)",
+        UDim2.new(0, 20, 0, 350),
+        settings.autoFire,
+        function(value)
+            settings.autoFire = value
+            self:SetSetting("autoFire", value)
+        end
+    )
+
+    -- Close hint
+    local closeHint = Instance.new("TextLabel")
+    closeHint.Size = UDim2.new(1, 0, 0, 25)
+    closeHint.Position = UDim2.new(0, 0, 1, -30)
+    closeHint.BackgroundTransparency = 1
+    closeHint.Text = "Press ESC to close"
+    closeHint.TextColor3 = Color3.fromRGB(120, 120, 130)
+    closeHint.TextSize = 12
+    closeHint.Font = Enum.Font.Gotham
+    closeHint.Parent = container
+
+    components.settingsMenu = container
+end
+
+--[[
+    Create a slider row for settings
+    @param parent Frame - Parent container
+    @param label string - Setting label
+    @param position UDim2 - Position in container
+    @param min number - Minimum value
+    @param max number - Maximum value
+    @param current number - Current value
+    @param onChange function(value) - Callback when changed
+    @return Frame - The row container
+]]
+function DinoHUD:CreateSliderRow(parent, label, position, min, max, current, onChange)
+    local row = Instance.new("Frame")
+    row.Name = label:gsub(" ", "")
+    row.Size = UDim2.new(1, -40, 0, 45)
+    row.Position = position
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+
+    -- Label
+    local labelText = Instance.new("TextLabel")
+    labelText.Size = UDim2.new(0.4, 0, 0, 20)
+    labelText.Position = UDim2.new(0, 0, 0, 0)
+    labelText.BackgroundTransparency = 1
+    labelText.Text = label
+    labelText.TextColor3 = Color3.new(1, 1, 1)
+    labelText.TextSize = 16
+    labelText.Font = Enum.Font.Gotham
+    labelText.TextXAlignment = Enum.TextXAlignment.Left
+    labelText.Parent = row
+
+    -- Value display
+    local valueText = Instance.new("TextLabel")
+    valueText.Name = "ValueText"
+    valueText.Size = UDim2.new(0, 50, 0, 20)
+    valueText.Position = UDim2.new(1, -50, 0, 0)
+    valueText.BackgroundTransparency = 1
+    valueText.Text = string.format("%.2f", current)
+    valueText.TextColor3 = Color3.fromRGB(255, 215, 0)
+    valueText.TextSize = 14
+    valueText.Font = Enum.Font.GothamBold
+    valueText.TextXAlignment = Enum.TextXAlignment.Right
+    valueText.Parent = row
+
+    -- Slider track
+    local track = Instance.new("Frame")
+    track.Name = "Track"
+    track.Size = UDim2.new(0.55, 0, 0, 8)
+    track.Position = UDim2.new(0.4, 0, 0, 28)
+    track.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    track.BorderSizePixel = 0
+    track.Parent = row
+
+    local trackCorner = Instance.new("UICorner")
+    trackCorner.CornerRadius = UDim.new(0, 4)
+    trackCorner.Parent = track
+
+    -- Slider fill
+    local fill = Instance.new("Frame")
+    fill.Name = "Fill"
+    local fillRatio = (current - min) / (max - min)
+    fill.Size = UDim2.new(fillRatio, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+    fill.BorderSizePixel = 0
+    fill.Parent = track
+
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 4)
+    fillCorner.Parent = fill
+
+    -- Slider handle
+    local handle = Instance.new("Frame")
+    handle.Name = "Handle"
+    handle.Size = UDim2.new(0, 16, 0, 16)
+    handle.Position = UDim2.new(fillRatio, -8, 0.5, -8)
+    handle.BackgroundColor3 = Color3.new(1, 1, 1)
+    handle.BorderSizePixel = 0
+    handle.ZIndex = 2
+    handle.Parent = track
+
+    local handleCorner = Instance.new("UICorner")
+    handleCorner.CornerRadius = UDim.new(0.5, 0)
+    handleCorner.Parent = handle
+
+    -- Make slider interactive
+    local dragging = false
+
+    local function updateSlider(inputPos)
+        local trackAbsPos = track.AbsolutePosition
+        local trackAbsSize = track.AbsoluteSize
+        local relativeX = math.clamp((inputPos.X - trackAbsPos.X) / trackAbsSize.X, 0, 1)
+
+        fill.Size = UDim2.new(relativeX, 0, 1, 0)
+        handle.Position = UDim2.new(relativeX, -8, 0.5, -8)
+
+        local newValue = min + (max - min) * relativeX
+        valueText.Text = string.format("%.2f", newValue)
+
+        if onChange then
+            onChange(newValue)
+        end
+    end
+
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            updateSlider(input.Position)
+        end
+    end)
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            updateSlider(input.Position)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    return row
+end
+
+--[[
+    Create a toggle row for settings
+    @param parent Frame - Parent container
+    @param label string - Setting label
+    @param position UDim2 - Position in container
+    @param current boolean - Current value
+    @param onChange function(value) - Callback when changed
+    @return Frame - The row container
+]]
+function DinoHUD:CreateToggleRow(parent, label, position, current, onChange)
+    local row = Instance.new("Frame")
+    row.Name = label:gsub(" ", "")
+    row.Size = UDim2.new(1, -40, 0, 40)
+    row.Position = position
+    row.BackgroundTransparency = 1
+    row.Parent = parent
+
+    -- Label
+    local labelText = Instance.new("TextLabel")
+    labelText.Size = UDim2.new(0.7, 0, 1, 0)
+    labelText.Position = UDim2.new(0, 0, 0, 0)
+    labelText.BackgroundTransparency = 1
+    labelText.Text = label
+    labelText.TextColor3 = Color3.new(1, 1, 1)
+    labelText.TextSize = 16
+    labelText.Font = Enum.Font.Gotham
+    labelText.TextXAlignment = Enum.TextXAlignment.Left
+    labelText.Parent = row
+
+    -- Toggle button
+    local toggleBg = Instance.new("Frame")
+    toggleBg.Name = "ToggleBg"
+    toggleBg.Size = UDim2.new(0, 50, 0, 26)
+    toggleBg.Position = UDim2.new(1, -50, 0.5, -13)
+    toggleBg.BackgroundColor3 = current and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(100, 100, 110)
+    toggleBg.BorderSizePixel = 0
+    toggleBg.Parent = row
+
+    local toggleCorner = Instance.new("UICorner")
+    toggleCorner.CornerRadius = UDim.new(0, 13)
+    toggleCorner.Parent = toggleBg
+
+    -- Toggle knob
+    local knob = Instance.new("Frame")
+    knob.Name = "Knob"
+    knob.Size = UDim2.new(0, 20, 0, 20)
+    knob.Position = current and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    knob.Parent = toggleBg
+
+    local knobCorner = Instance.new("UICorner")
+    knobCorner.CornerRadius = UDim.new(0.5, 0)
+    knobCorner.Parent = knob
+
+    -- Toggle state
+    local isOn = current
+
+    -- Make toggle interactive
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(1, 0, 1, 0)
+    toggleButton.BackgroundTransparency = 1
+    toggleButton.Text = ""
+    toggleButton.Parent = toggleBg
+
+    toggleButton.MouseButton1Click:Connect(function()
+        isOn = not isOn
+
+        -- Animate toggle
+        local targetKnobPos = isOn and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
+        local targetColor = isOn and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(100, 100, 110)
+
+        TweenService:Create(knob, TweenInfo.new(0.15), {Position = targetKnobPos}):Play()
+        TweenService:Create(toggleBg, TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
+
+        if onChange then
+            onChange(isOn)
+        end
+    end)
+
+    return row
+end
+
+--[[
+    Toggle settings menu visibility
+]]
+function DinoHUD:ToggleSettingsMenu()
+    if not components.settingsMenu then
+        self:CreateSettingsMenu()
+    end
+
+    local isVisible = components.settingsMenu.Visible
+    components.settingsMenu.Visible = not isVisible
+
+    -- When showing settings, unlock mouse for UI interaction
+    if not isVisible then
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+    else
+        -- Restore mouse lock based on setting
+        if settings.mouseLock then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        end
+    end
+end
+
+--[[
+    Check if settings menu is open
+    @return boolean
+]]
+function DinoHUD:IsSettingsMenuOpen()
+    return components.settingsMenu and components.settingsMenu.Visible
+end
+
+--=============================================================================
 -- HIT MARKER AND COMBAT FEEDBACK
 --=============================================================================
 
