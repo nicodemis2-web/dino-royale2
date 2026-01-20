@@ -37,6 +37,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
 
 -- Get the local player reference (client-side only)
 local player = Players.LocalPlayer
@@ -418,6 +419,124 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.M then
         -- Toggle fullscreen map showing terrain, storm circle, and teammate positions
         hud:ToggleFullscreenMap()
+    end
+
+    -- R key - reload weapon
+    if input.KeyCode == Enum.KeyCode.R then
+        Remotes.FireServer("WeaponReload")
+    end
+end)
+
+--=============================================================================
+-- MOUSE INPUT HANDLING
+-- Handle mouse buttons for weapon firing, aiming, and interaction
+--=============================================================================
+
+-- Track mouse button states for automatic weapons
+local isMouseDown = false
+local isAiming = false
+local fireConnection = nil
+
+--[[
+    Get the mouse position and direction for aiming/shooting
+    @return Vector3 origin, Vector3 direction
+]]
+local function getMouseRay()
+    local mouse = player:GetMouse()
+    local camera = workspace.CurrentCamera
+
+    if camera then
+        local mousePos = UserInputService:GetMouseLocation()
+        local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+        return ray.Origin, ray.Direction * 1000
+    end
+
+    return Vector3.new(0, 0, 0), Vector3.new(0, 0, -1)
+end
+
+--[[
+    Fire the equipped weapon
+    Sends fire request to server with aim direction
+]]
+local function fireWeapon()
+    if not clientState.isAlive then return end
+    if clientState.gameState ~= "Match" and clientState.gameState ~= "Lobby" then return end
+
+    local origin, direction = getMouseRay()
+    Remotes.FireServer("WeaponFire", origin, direction)
+end
+
+-- Handle mouse button down (start firing)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    -- Left mouse button - Fire weapon
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isMouseDown = true
+        fireWeapon()
+
+        -- Start continuous firing for automatic weapons
+        if not fireConnection then
+            fireConnection = RunService.Heartbeat:Connect(function()
+                if isMouseDown and clientState.isAlive then
+                    fireWeapon()
+                end
+            end)
+        end
+    end
+
+    -- Right mouse button - Aim down sights (ADS)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = true
+        Remotes.FireServer("WeaponAim", true)
+        -- Could also adjust camera FOV here for zoom effect
+    end
+end)
+
+-- Handle mouse button up (stop firing/aiming)
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    -- Left mouse button released - Stop firing
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        isMouseDown = false
+        if fireConnection then
+            fireConnection:Disconnect()
+            fireConnection = nil
+        end
+    end
+
+    -- Right mouse button released - Stop aiming
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        isAiming = false
+        Remotes.FireServer("WeaponAim", false)
+    end
+end)
+
+-- Enable mouse lock (first-person style aiming)
+-- This keeps the mouse centered for better FPS-style controls
+UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+
+-- Handle mouse scroll for weapon switching
+UserInputService.InputChanged:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
+    if input.UserInputType == Enum.UserInputType.MouseWheel then
+        local scroll = input.Position.Z  -- Positive = up, Negative = down
+
+        if scroll > 0 then
+            -- Scroll up - previous weapon
+            local newSlot = clientState.selectedWeaponSlot - 1
+            if newSlot < 1 then newSlot = 5 end
+            clientState.selectedWeaponSlot = newSlot
+            hud:SelectWeaponSlot(newSlot)
+            Remotes.FireServer("WeaponEquip", newSlot)
+        elseif scroll < 0 then
+            -- Scroll down - next weapon
+            local newSlot = clientState.selectedWeaponSlot + 1
+            if newSlot > 5 then newSlot = 1 end
+            clientState.selectedWeaponSlot = newSlot
+            hud:SelectWeaponSlot(newSlot)
+            Remotes.FireServer("WeaponEquip", newSlot)
+        end
     end
 end)
 

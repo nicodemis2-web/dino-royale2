@@ -335,26 +335,48 @@ end
 
 --[[
     Give starting weapons for test mode
+    Gives each player an AK-47 with 30 rounds loaded and extra ammo
 ]]
 function GameService:GiveTestModeWeapons()
-    local playerInventory = framework:GetModule("PlayerInventory")
     local weaponService = framework:GetService("WeaponService")
 
-    if not playerInventory or not weaponService then
-        framework.Log("Warn", "Cannot give test mode weapons - missing services")
+    if not weaponService then
+        framework.Log("Warn", "Cannot give test mode weapons - WeaponService not found")
         return
     end
 
+    -- Wait briefly for player characters to fully load
+    task.wait(1)
+
     for _, player in ipairs(Players:GetPlayers()) do
-        -- Give a basic assault rifle
-        playerInventory:GiveWeapon(player, "assault_rifle_common")
-        -- Give some ammo
-        playerInventory:GiveAmmo(player, "medium", 120)
-        -- Give a medkit
-        playerInventory:GiveConsumable(player, "medkit", 2)
+        -- Initialize weapon inventory if needed
+        if weaponService.InitializePlayerInventory then
+            weaponService:InitializePlayerInventory(player)
+        end
+
+        -- Give an AK-47 assault rifle with full magazine (30 rounds)
+        local success = weaponService:GiveWeapon(player, "ak47", 30)
+        if success then
+            print(string.format("[DinoRoyale] TEST MODE: Gave AK-47 (30 rounds) to %s", player.Name))
+        else
+            warn(string.format("[DinoRoyale] TEST MODE: Failed to give weapon to %s", player.Name))
+        end
+
+        -- Give extra ammo (90 medium rounds for AK-47)
+        weaponService:GiveAmmo(player, "medium", 90)
+
+        -- Also give a shotgun for variety
+        weaponService:GiveWeapon(player, "pump_shotgun", 8)
+        weaponService:GiveAmmo(player, "shells", 24)
+
+        -- Give some healing items via PlayerInventory if available
+        local playerInventory = framework:GetModule("PlayerInventory")
+        if playerInventory then
+            playerInventory:GiveConsumable(player, "medkit", 3)
+            playerInventory:GiveConsumable(player, "bandage", 5)
+        end
 
         framework.Log("Debug", "Gave test mode loadout to %s", player.Name)
-        print(string.format("[DinoRoyale] TEST MODE: Gave starting weapons to %s", player.Name))
     end
 end
 
