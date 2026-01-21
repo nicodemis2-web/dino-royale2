@@ -1890,6 +1890,14 @@ function DinoService:SpawnWave()
             -- Determine pack size
             local packMin = def.packSize.min
             local packMax = math.min(def.packSize.max, toSpawn - spawned)
+            -- Ensure packMax >= packMin to avoid empty interval error
+            if packMax < packMin then
+                packMax = packMin
+            end
+            -- Ensure we don't exceed remaining quota
+            if packMax < 1 then
+                break
+            end
             local packCount = math.random(packMin, packMax)
 
             -- Select spawn position
