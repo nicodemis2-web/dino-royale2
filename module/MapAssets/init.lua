@@ -148,6 +148,10 @@ end
 -- ASSET LOADING
 --=============================================================================
 
+-- Set to true to skip external asset loading and use only procedural placeholders
+-- This avoids authorization errors when testing in unpublished places
+local USE_PLACEHOLDERS_ONLY = true
+
 --[[
     Load an asset from Roblox by asset ID
     Uses caching to prevent duplicate downloads
@@ -156,20 +160,22 @@ end
     @return Model|nil - The loaded model or nil on failure
 ]]
 function MapAssets:LoadAsset(assetId)
+    -- Skip external loading if using placeholders only
+    if USE_PLACEHOLDERS_ONLY then
+        return nil
+    end
+
     if not assetId then
-        framework.Log("Warn", "LoadAsset called with nil assetId")
         return nil
     end
 
     -- Check cache first
     if assetCache[assetId] then
-        framework.Log("Debug", "Asset %d loaded from cache", assetId)
         return assetCache[assetId]:Clone()
     end
 
     -- Check if this asset already failed (avoid repeated HTTP requests)
     if failedAssets[assetId] then
-        -- Only log once per session, not every attempt
         return nil
     end
 
@@ -181,12 +187,10 @@ function MapAssets:LoadAsset(assetId)
     if success and result then
         -- Cache the original for future cloning
         assetCache[assetId] = result
-        framework.Log("Info", "Asset %d loaded successfully", assetId)
         return result:Clone()
     else
         -- Mark as failed to prevent repeated attempts
         failedAssets[assetId] = true
-        framework.Log("Warn", "Failed to load asset %d: %s (will use placeholder)", assetId, tostring(result))
         return nil
     end
 end
