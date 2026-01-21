@@ -62,76 +62,26 @@ local Workspace = game:GetService("Workspace")
 --=============================================================================
 
 --[[
-    Get the terrain height at a given X, Z position using raycast
-    Excludes placed objects (buildings, vegetation, props) to find actual terrain
+    Get the terrain height at a given X, Z position.
+    Delegates to TerrainSetup service when available for consistency.
 
     @param x number - X coordinate
     @param z number - Z coordinate
     @return number - Terrain height (Y value) at the position
 ]]
 local function GetTerrainHeight(x, z)
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-
-    -- METHOD 1: Direct raycast excluding all non-terrain objects
-    if terrain then
-        local rayOrigin = Vector3.new(x, 500, z)
-        local rayDirection = Vector3.new(0, -600, 0)
-
-        -- Exclude ALL workspace children except Terrain
-        local excludeList = {}
-        for _, child in ipairs(Workspace:GetChildren()) do
-            if child ~= terrain then
-                table.insert(excludeList, child)
+    -- Try to use TerrainSetup service for consistent height detection
+    if framework then
+        local terrainSetup = framework:GetService("TerrainSetup")
+        if terrainSetup and terrainSetup.GetTerrainHeight then
+            local height = terrainSetup:GetTerrainHeight(Vector3.new(x, 0, z))
+            if height then
+                return height
             end
-        end
-
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-        raycastParams.FilterDescendantsInstances = excludeList
-        raycastParams.IgnoreWater = true
-
-        local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-        if result and result.Position then
-            return result.Position.Y
         end
     end
 
-    -- METHOD 2: Read terrain voxels directly
-    if terrain then
-        local success, height = pcall(function()
-            local minY = -20
-            local maxY = 200
-            local resolution = 4
-
-            local region = Region3.new(
-                Vector3.new(x - resolution, minY, z - resolution),
-                Vector3.new(x + resolution, maxY, z + resolution)
-            ):ExpandToGrid(resolution)
-
-            local materials = terrain:ReadVoxels(region, resolution)
-
-            if materials and #materials > 0 and #materials[1] > 0 and #materials[1][1] > 0 then
-                local midX = math.ceil(#materials / 2)
-                local midZ = math.ceil(#materials[1][1] / 2)
-
-                -- Find highest non-air voxel
-                for y = #materials[1], 1, -1 do
-                    local mat = materials[midX][y][midZ]
-                    if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
-                        -- Convert voxel index to world Y
-                        return minY + (y - 0.5) * resolution
-                    end
-                end
-            end
-            return nil
-        end)
-
-        if success and height then
-            return height
-        end
-    end
-
-    -- METHOD 3: Calculate using terrain generation formula
+    -- Fallback: Calculate using terrain generation formula
     local islandRadius = 900
     local baseHeight = 5
     local maxTerrainHeight = 50

@@ -560,81 +560,28 @@ local EVENT_DEFINITIONS = {
 --==============================================================================
 
 --[[
-    Get terrain height at a position using raycasting
+    Get terrain height at a position using TerrainSetup service or calculation.
 
-    Casts a ray from above downward to find the ground level at the given X, Z position.
-    This ensures assets are properly grounded on the terrain.
+    This delegates to TerrainSetup:GetTerrainHeight when available for consistency,
+    otherwise calculates using the same formula as terrain generation.
 
     @param x number - X coordinate
     @param z number - Z coordinate
     @return number - Y coordinate of ground level
 ]]
 local function GetTerrainHeight(x, z)
-    local terrain = workspace:FindFirstChildOfClass("Terrain")
-
-    -- METHOD 1: Direct raycast against terrain only
-    if terrain then
-        local rayOrigin = Vector3.new(x, 500, z)
-        local rayDirection = Vector3.new(0, -600, 0)
-
-        -- Exclude ALL workspace children except Terrain
-        local excludeList = {}
-        for _, child in ipairs(workspace:GetChildren()) do
-            if child ~= terrain then
-                table.insert(excludeList, child)
+    -- Try to use TerrainSetup service for consistent height detection
+    if framework then
+        local terrainSetup = framework:GetService("TerrainSetup")
+        if terrainSetup and terrainSetup.GetTerrainHeight then
+            local height = terrainSetup:GetTerrainHeight(Vector3.new(x, 0, z))
+            if height then
+                return height
             end
-        end
-
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-        raycastParams.FilterDescendantsInstances = excludeList
-        raycastParams.IgnoreWater = true
-
-        local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-        if result and result.Position then
-            return result.Position.Y
         end
     end
 
-    -- METHOD 2: Read terrain voxels directly
-    if terrain then
-        local success, height = pcall(function()
-            -- Sample a column of voxels at this X,Z position
-            local minY = -20
-            local maxY = 200
-            local resolution = 4
-
-            local region = Region3.new(
-                Vector3.new(x - resolution, minY, z - resolution),
-                Vector3.new(x + resolution, maxY, z + resolution)
-            ):ExpandToGrid(resolution)
-
-            local materials = terrain:ReadVoxels(region, resolution)
-
-            if materials and #materials > 0 and #materials[1] > 0 and #materials[1][1] > 0 then
-                local midX = math.ceil(#materials / 2)
-                local midZ = math.ceil(#materials[1][1] / 2)
-
-                -- Search from top to bottom for first solid voxel
-                for y = #materials[1], 1, -1 do
-                    local mat = materials[midX][y][midZ]
-                    if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
-                        -- Convert voxel Y index to world Y
-                        -- Region starts at minY, each voxel is resolution studs
-                        local worldY = minY + (y - 0.5) * resolution
-                        return worldY
-                    end
-                end
-            end
-            return nil
-        end)
-
-        if success and height then
-            return height
-        end
-    end
-
-    -- METHOD 3: Calculate using terrain generation formula
+    -- Fallback: Calculate using terrain generation formula
     -- This matches TerrainSetup:GenerateIslandTerrain() exactly
     local islandRadius = 900
     local baseHeight = 5

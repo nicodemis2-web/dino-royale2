@@ -1536,10 +1536,13 @@ end
     @return string - The weapon category of the currently equipped weapon
 ]]
 local function getCurrentWeaponCategory()
-    if clientState.inventory and clientState.inventory.weapons then
-        local slot = clientState.inventory.weapons[clientState.selectedWeaponSlot]
-        if slot and slot.category then
-            return slot.category
+    if clientState.inventory then
+        local slots = clientState.inventory.slots or clientState.inventory.weapons
+        if slots then
+            local slot = slots[clientState.selectedWeaponSlot]
+            if slot and slot.category then
+                return slot.category
+            end
         end
     end
     return "assault_rifle"  -- Default fallback
@@ -1817,9 +1820,13 @@ local function playGunshotSound(weaponCategory)
     end)
 end
 
+-- Store original walk speed for ADS restoration
+local originalWalkSpeed = 16
+
 --[[
     Start aiming animation - adjusts character pose and camera
     Shows weapon-specific ADS reticle and adjusts FOV based on weapon type
+    Reduces movement speed for steadier aim
 ]]
 local function startAiming()
     local character = player.Character
@@ -1828,9 +1835,33 @@ local function startAiming()
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     if not humanoid then return end
 
+    -- Check if we have a weapon equipped
+    local hasWeapon = false
+    if clientState.inventory then
+        local slots = clientState.inventory.slots or clientState.inventory.weapons
+        if slots then
+            local slot = slots[clientState.selectedWeaponSlot]
+            hasWeapon = slot and slot.id ~= nil
+        end
+    end
+
+    if not hasWeapon then
+        return  -- Can't aim without a weapon
+    end
+
     -- Get current weapon category for FOV and reticle selection
     local weaponCategory = getCurrentWeaponCategory()
     local adsConfig = ADS_RETICLE_CONFIGS[weaponCategory] or DEFAULT_ADS_CONFIG
+
+    -- Store and reduce walk speed while aiming (steadier aim)
+    originalWalkSpeed = humanoid.WalkSpeed
+    local adsSpeedMultiplier = 0.6  -- 60% of normal speed while ADS
+    if weaponCategory == "sniper" then
+        adsSpeedMultiplier = 0.4  -- Snipers move slower while ADS
+    elseif weaponCategory == "shotgun" then
+        adsSpeedMultiplier = 0.75  -- Shotguns barely slow down
+    end
+    humanoid.WalkSpeed = originalWalkSpeed * adsSpeedMultiplier
 
     -- Adjust camera FOV based on weapon type (snipers zoom more, shotguns less)
     local camera = workspace.CurrentCamera
@@ -1849,17 +1880,22 @@ local function startAiming()
     if hud and hud.SetCrosshairSpread then
         hud:SetCrosshairSpread(0.5)  -- Tighter crosshair when aiming
     end
-
-    print("[DinoRoyale Client] ADS started - " .. weaponCategory .. " reticle, FOV: " .. (adsConfig.fov or 50))
 end
 
 --[[
     Stop aiming animation - returns to normal pose and camera
     Hides ADS reticle and restores normal crosshair
+    Restores normal movement speed
 ]]
 local function stopAiming()
     local character = player.Character
     if not character then return end
+
+    -- Restore walk speed
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = originalWalkSpeed
+    end
 
     -- Reset camera FOV to default
     local camera = workspace.CurrentCamera
@@ -1877,8 +1913,6 @@ local function stopAiming()
     if hud and hud.SetCrosshairSpread then
         hud:SetCrosshairSpread(1.0)  -- Normal crosshair
     end
-
-    print("[DinoRoyale Client] ADS stopped - FOV reset")
 end
 
 --[[
@@ -1904,20 +1938,29 @@ local function fireWeapon()
     -- Check if we have a weapon and ammo before firing
     local weaponCategory = "assault_rifle"  -- Default
     local hasAmmo = true
-    if clientState.inventory and clientState.inventory.weapons then
-        local slot = clientState.inventory.weapons[clientState.selectedWeaponSlot]
-        if slot then
-            if slot.category then
-                weaponCategory = slot.category
+    local hasWeapon = false
+
+    -- Check inventory - server sends 'slots' not 'weapons'
+    if clientState.inventory then
+        local slots = clientState.inventory.slots or clientState.inventory.weapons
+        if slots then
+            local slot = slots[clientState.selectedWeaponSlot]
+            if slot and slot.id then
+                hasWeapon = true
+                if slot.category then
+                    weaponCategory = slot.category
+                end
+                -- Check ammo - melee weapons don't need ammo
+                if slot.category ~= "melee" and slot.currentAmmo ~= nil and slot.currentAmmo <= 0 then
+                    hasAmmo = false
+                end
             end
-            -- Check ammo - melee weapons don't need ammo
-            if slot.category ~= "melee" and slot.currentAmmo ~= nil and slot.currentAmmo <= 0 then
-                hasAmmo = false
-            end
-        else
-            -- No weapon in slot, can't fire
-            return
         end
+    end
+
+    -- No weapon in slot, can't fire
+    if not hasWeapon then
+        return
     end
 
     -- Don't fire visual/audio effects if out of ammo
@@ -2377,10 +2420,159 @@ local function updateWeaponPose(deltaTime)
     end
 end
 
--- Start weapon pose update loop
+--=============================================================================
+-- UPPER BODY AIM SYSTEM
+-- Rotates the character's upper body (torso, arms) to aim where the camera looks.
+-- This makes the character visually aim at the target while moving independently.
+--=============================================================================
+
+local upperBodyAimState = {
+    enabled = true,
+    currentAimAngle = 0,     -- Current vertical aim angle (pitch)
+    targetAimAngle = 0,      -- Target vertical aim angle
+    waistMotor = nil,        -- Reference to waist Motor6D
+    originalWaistC0 = nil,   -- Original waist C0 for reset
+}
+
+local AIM_LERP_SPEED = 15           -- How fast to follow aim direction
+local AIM_PITCH_LIMIT = 60          -- Max degrees up/down
+local AIM_MOVEMENT_REDUCTION = 0.3  -- Reduce aim when running (0-1)
+
+--[[
+    Setup upper body aiming for a character
+    Stores reference to the waist motor for manipulation
+]]
+local function setupUpperBodyAim(character)
+    if not character then return end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    -- For R15 rigs, find the waist motor (connects LowerTorso to UpperTorso)
+    local upperTorso = character:FindFirstChild("UpperTorso")
+    local lowerTorso = character:FindFirstChild("LowerTorso")
+
+    if upperTorso and lowerTorso then
+        -- R15 rig - use Waist motor
+        local waist = lowerTorso:FindFirstChild("Waist")
+        if waist and waist:IsA("Motor6D") then
+            upperBodyAimState.waistMotor = waist
+            upperBodyAimState.originalWaistC0 = waist.C0
+            return
+        end
+    end
+
+    -- For R6 rigs, find the Torso
+    local torso = character:FindFirstChild("Torso")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+    if torso and rootPart then
+        -- R6 rig - check for RootJoint
+        local rootJoint = rootPart:FindFirstChild("RootJoint")
+        if rootJoint and rootJoint:IsA("Motor6D") then
+            upperBodyAimState.waistMotor = rootJoint
+            upperBodyAimState.originalWaistC0 = rootJoint.C0
+        end
+    end
+end
+
+--[[
+    Update upper body aim each frame
+    Rotates torso to follow camera pitch for aiming
+]]
+local function updateUpperBodyAim(deltaTime)
+    if not upperBodyAimState.enabled then return end
+
+    local character = player.Character
+    if not character then return end
+
+    local motor = upperBodyAimState.waistMotor
+    if not motor or not upperBodyAimState.originalWaistC0 then
+        -- Try to setup if not done yet
+        setupUpperBodyAim(character)
+        return
+    end
+
+    -- Check if we have a weapon equipped
+    local hasWeapon = false
+    if clientState.inventory then
+        local slots = clientState.inventory.slots or clientState.inventory.weapons
+        if slots then
+            local slot = slots[clientState.selectedWeaponSlot]
+            hasWeapon = slot and slot.id ~= nil
+        end
+    end
+
+    -- Only aim if we have a weapon
+    if not hasWeapon then
+        -- Reset to original pose
+        motor.C0 = upperBodyAimState.originalWaistC0
+        upperBodyAimState.currentAimAngle = 0
+        return
+    end
+
+    -- Get camera pitch angle
+    local camera = workspace.CurrentCamera
+    if not camera then return end
+
+    local camLookVector = camera.CFrame.LookVector
+    local pitch = math.asin(camLookVector.Y)  -- Vertical angle in radians
+    local pitchDegrees = math.deg(pitch)
+
+    -- Clamp pitch to limits
+    pitchDegrees = math.clamp(pitchDegrees, -AIM_PITCH_LIMIT, AIM_PITCH_LIMIT)
+
+    -- Reduce aim rotation when running (looks more natural)
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if rootPart then
+        local velocity = rootPart.AssemblyLinearVelocity
+        local speed = Vector3.new(velocity.X, 0, velocity.Z).Magnitude
+        local runFactor = math.clamp(speed / 20, 0, 1)
+        pitchDegrees = pitchDegrees * (1 - runFactor * AIM_MOVEMENT_REDUCTION)
+    end
+
+    upperBodyAimState.targetAimAngle = pitchDegrees
+
+    -- Smooth interpolation
+    local lerpSpeed = AIM_LERP_SPEED * deltaTime
+    upperBodyAimState.currentAimAngle = upperBodyAimState.currentAimAngle +
+        (upperBodyAimState.targetAimAngle - upperBodyAimState.currentAimAngle) * math.min(1, lerpSpeed)
+
+    -- Apply rotation to waist motor
+    -- Rotate around X axis (pitch) to tilt upper body
+    local aimRotation = CFrame.Angles(math.rad(-upperBodyAimState.currentAimAngle), 0, 0)
+    motor.C0 = upperBodyAimState.originalWaistC0 * aimRotation
+end
+
+-- Reset upper body aim when character respawns
+local function resetUpperBodyAim()
+    upperBodyAimState.waistMotor = nil
+    upperBodyAimState.originalWaistC0 = nil
+    upperBodyAimState.currentAimAngle = 0
+    upperBodyAimState.targetAimAngle = 0
+end
+
+-- Start weapon pose update loop (combined with upper body aim)
 RunService.RenderStepped:Connect(function(deltaTime)
     updateWeaponPose(deltaTime)
+    updateUpperBodyAim(deltaTime)
 end)
+
+-- Setup upper body aim when character spawns
+player.CharacterAdded:Connect(function(character)
+    -- Wait for character to fully load
+    character:WaitForChild("Humanoid")
+    task.wait(0.1)
+    setupUpperBodyAim(character)
+end)
+
+-- Setup for existing character
+if player.Character then
+    task.spawn(function()
+        task.wait(0.1)
+        setupUpperBodyAim(player.Character)
+    end)
+end
 
 --=============================================================================
 -- BULLET TRACER SYSTEM
@@ -2484,6 +2676,7 @@ player.CharacterAdded:Connect(function(character)
     weaponPoseState.currentPose = "ready"
     weaponPoseState.targetPose = "ready"
     weaponPoseState.firingKick = 0
+    resetUpperBodyAim()
 end)
 
 --=============================================================================
