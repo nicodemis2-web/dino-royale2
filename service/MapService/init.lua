@@ -397,6 +397,40 @@ local POI_DEFINITIONS = {
         chestCount = 1,
         count = 12,
     },
+
+    --[[
+        Missing GDD POIs - Added for compliance
+    ]]
+
+    -- Communications Tower (GDD: plains, rare loot, tall structure, sniper spot)
+    communications_tower = {
+        name = "Communications Tower",
+        type = "major",
+        description = "Tall radio tower with excellent sightlines - a sniper's paradise",
+        biome = "plains",
+        size = Vector3.new(60, 120, 60),  -- Tall structure
+        lootTier = "rare",
+        lootDensity = 1.4,
+        chestCount = 4,
+        dinoSpawns = 1,
+        landmarks = {"antenna_array", "control_room", "observation_deck"},
+        sniperSpot = true,  -- Flags this as good sniper location
+    },
+
+    -- Power Station (GDD: volcanic, uncommon, industrial, hazards nearby)
+    power_station = {
+        name = "Power Station",
+        type = "major",
+        description = "Geothermal power facility - danger from nearby volcanic activity",
+        biome = "volcanic",
+        size = Vector3.new(100, 40, 80),
+        lootTier = "uncommon",
+        lootDensity = 1.2,
+        chestCount = 5,
+        dinoSpawns = 2,
+        landmarks = {"turbine_hall", "cooling_towers", "transformer_yard"},
+        hazardZone = true,  -- Near volcanic hazards
+    },
 }
 
 -- Environmental Event Definitions
@@ -451,12 +485,12 @@ local EVENT_DEFINITIONS = {
         name = "Meteor Shower",
         type = "hazard",
         description = "Meteors rain from the sky!",
-        duration = 45,
-        warningTime = 15,
+        duration = 15,           -- GDD specifies 15s (was 45s)
+        warningTime = 5,         -- Short warning for urgent chaos
         cooldown = 180,
         radius = 500,            -- Map-wide
-        damage = 50,             -- Heavy damage
-        meteorCount = 20,
+        damage = 75,             -- GDD: 75 damage per meteor
+        meteorCount = 10,        -- GDD: 10 meteors
         impactRadius = 15,       -- Each meteor's damage radius
         stormPhaseMin = 3,       -- Only in late game
     },
@@ -471,11 +505,12 @@ local EVENT_DEFINITIONS = {
         name = "Toxic Gas Leak",
         type = "hazard",
         description = "Toxic gas is leaking from the facility!",
-        duration = 40,
+        duration = 25,           -- GDD specifies 25s (was 40s)
         warningTime = 8,
         cooldown = 100,
         radius = 80,
         damagePerSecond = 5,
+        slowEffect = 0.5,        -- GDD: "DoT + slow" - 50% movement speed reduction
         biome = "facility",
         visualEffect = "green_fog",
     },
@@ -538,19 +573,91 @@ local function GetTerrainHeight(x, z)
     local rayOrigin = Vector3.new(x, 500, z)
     local rayDirection = Vector3.new(0, -1000, 0)
 
+    -- Build exclusion list to find actual terrain, not placed objects
+    local excludeList = {}
+    local poisFolder = workspace:FindFirstChild("POIs")
+    local floraFolder = workspace:FindFirstChild("Flora")
+    local decorFolder = workspace:FindFirstChild("Decorations")
+    local poiBldgsFolder = workspace:FindFirstChild("POIBuildings")
+    local dinoFolder = workspace:FindFirstChild("Dinosaurs")
+    local groundLoot = workspace:FindFirstChild("GroundLoot")
+    local lobbyPlatform = workspace:FindFirstChild("LobbyPlatform")
+    local chests = workspace:FindFirstChild("Chests")
+    local biomes = workspace:FindFirstChild("Biomes")
+
+    if poisFolder then table.insert(excludeList, poisFolder) end
+    if floraFolder then table.insert(excludeList, floraFolder) end
+    if decorFolder then table.insert(excludeList, decorFolder) end
+    if poiBldgsFolder then table.insert(excludeList, poiBldgsFolder) end
+    if dinoFolder then table.insert(excludeList, dinoFolder) end
+    if groundLoot then table.insert(excludeList, groundLoot) end
+    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+    if chests then table.insert(excludeList, chests) end
+    if biomes then table.insert(excludeList, biomes) end
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {}
+    raycastParams.FilterDescendantsInstances = excludeList
     raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
 
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
     if result then
-        return result.Position.Y
+        -- Only accept if we hit actual Terrain, not a random Part
+        if result.Instance and result.Instance:IsA("Terrain") then
+            return result.Position.Y
+        end
+        -- If hit something else, it's a part we didn't exclude - skip it
     end
 
-    -- Fallback to base terrain height if raycast fails
-    return 5  -- MAP_CONFIG.baseHeight default
+    -- FALLBACK: Read terrain voxels directly
+    -- This is more reliable for procedurally generated terrain
+    local terrain = workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        local success, voxelData = pcall(function()
+            return terrain:ReadVoxels(
+                Region3.new(
+                    Vector3.new(x - 2, -10, z - 2),
+                    Vector3.new(x + 2, 300, z + 2)
+                ):ExpandToGrid(4),
+                4
+            )
+        end)
+
+        if success and voxelData and #voxelData > 0 then
+            -- ReadVoxels returns materials[x][y][z]
+            -- We need to sample at the center of our region
+            local xSize = #voxelData
+            local ySize = #voxelData[1]
+            local zSize = #voxelData[1][1]
+            local midX = math.ceil(xSize / 2)
+            local midZ = math.ceil(zSize / 2)
+
+            -- Search from top to bottom at the center X,Z position
+            for y = ySize, 1, -1 do
+                local mat = voxelData[midX][y][midZ]
+                if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                    -- Voxel Y index to world Y: region starts at -10, each voxel is 4 studs
+                    return -10 + (y - 1) * 4
+                end
+            end
+        end
+    end
+
+    -- FINAL FALLBACK: Calculate expected height using island generation formula
+    -- This matches TerrainSetup:GenerateIslandTerrain() logic
+    local islandRadius = 900  -- MAP_CONFIG.islandRadius
+    local distFromCenter = math.sqrt(x * x + z * z)
+
+    if distFromCenter < islandRadius then
+        local normalizedDist = distFromCenter / islandRadius
+        local heightFalloff = 1 - (normalizedDist ^ 2)
+        local noise = math.noise(x / 200, z / 200) * 0.5 + 0.5
+        local detailNoise = math.noise(x / 50, z / 50) * 0.3
+        return 5 + (noise + detailNoise) * 50 * heightFalloff
+    end
+
+    return 5  -- Base terrain height default
 end
 
 --==============================================================================
@@ -931,8 +1038,10 @@ function MapService:GenerateSpawnPoints()
         local x = math.cos(angle) * spawnRadius
         local z = math.sin(angle) * spawnRadius
 
+        -- Get terrain height for player spawn point
+        local terrainY = GetTerrainHeight(x, z)
         table.insert(spawnPoints.player, {
-            position = Vector3.new(x, 0, z),
+            position = Vector3.new(x, terrainY, z),
             type = "player_drop",
         })
     end
@@ -950,8 +1059,10 @@ function MapService:GenerateSpawnPoints()
             local x = biome.position.X + math.cos(angle) * distance
             local z = biome.position.Z + math.sin(angle) * distance
 
+            -- Get terrain height for this spawn point
+            local terrainY = GetTerrainHeight(x, z)
             table.insert(spawnPoints.dinosaur, {
-                position = Vector3.new(x, 0, z),
+                position = Vector3.new(x, terrainY, z),
                 biome = biome.type,
                 spawnModifier = biome.definition.dinoSpawnModifier,
             })
@@ -972,8 +1083,10 @@ function MapService:GenerateSpawnPoints()
             local biome = self:GetBiomeAtPosition(Vector3.new(x, 0, z))
             local lootMod = biome and biome.definition.lootModifier or 1.0
 
+            -- Get terrain height for loot spawn
+            local terrainY = GetTerrainHeight(x + offsetX, z + offsetZ)
             table.insert(spawnPoints.loot, {
-                position = Vector3.new(x + offsetX, 0, z + offsetZ),
+                position = Vector3.new(x + offsetX, terrainY, z + offsetZ),
                 lootModifier = lootMod,
             })
         end
@@ -1080,6 +1193,7 @@ end
 
 --[[
     Create vegetation (trees, bushes, etc.) for a biome
+    Uses MapAssets module to spawn actual asset pack trees and vegetation
 
     @param biome table - Biome instance data
     @param parent Instance - Parent folder
@@ -1098,6 +1212,34 @@ function MapService:CreateVegetation(biome, parent)
     -- Cap at reasonable number
     numPieces = math.min(numPieces, 100)
 
+    -- Try to use MapAssets for real asset loading
+    local MapAssets = framework:GetModule("MapAssets")
+    if MapAssets then
+        -- Get vegetation type based on biome
+        local vegetationType = self:GetVegetationTypeForBiome(biome.type)
+
+        -- Spawn vegetation using MapAssets
+        local spawnedVegetation = MapAssets:SpawnVegetation(
+            vegetationType,
+            biome.position,
+            biome.radius * 0.9,
+            numPieces,
+            biome.type  -- Pass biome for tree pack selection
+        )
+
+        -- Reparent spawned vegetation to our folder for organization
+        for _, veg in ipairs(spawnedVegetation) do
+            if veg and veg.Parent then
+                veg.Parent = vegetationFolder
+            end
+        end
+
+        framework.Log("Debug", "Spawned %d vegetation items for biome %s using MapAssets", #spawnedVegetation, biome.type)
+        return
+    end
+
+    -- Fallback to placeholder vegetation if MapAssets not available
+    framework.Log("Warn", "MapAssets not available, using placeholder vegetation")
     for i = 1, numPieces do
         -- Random position within biome
         local angle = math.random() * math.pi * 2
@@ -1131,6 +1273,24 @@ function MapService:CreateVegetation(biome, parent)
         foliage.Shape = Enum.PartType.Ball
         foliage.Parent = vegetationFolder
     end
+end
+
+--[[
+    Get the vegetation type from AssetManifest for a given biome type
+
+    @param biomeType string - The biome type (jungle, swamp, volcanic, etc.)
+    @return string - The vegetation type key for AssetManifest.Vegetation
+]]
+function MapService:GetVegetationTypeForBiome(biomeType)
+    local biomeToVegetation = {
+        jungle = "JungleTrees",
+        swamp = "SwampTrees",
+        volcanic = "CharredTrees",
+        facility = "GrassTufts",
+        plains = "GrassTufts",
+        coastal = "GrassTufts",
+    }
+    return biomeToVegetation[biomeType] or "JungleTrees"
 end
 
 --[[
@@ -1204,7 +1364,7 @@ function MapService:CreateHazardFeatures(biome, parent)
 end
 
 --[[
-    Create a POI structure with placeholder visuals
+    Create a POI structure using MapAssets for real building models
 
     @param poi table - POI instance data
     @param parent Instance - Parent folder
@@ -1220,47 +1380,83 @@ function MapService:CreatePOIStructure(poi, parent)
     -- Get terrain height at POI position
     local groundY = GetTerrainHeight(poi.position.X, poi.position.Z)
 
-    -- Create base platform/structure
-    local base = Instance.new("Part")
-    base.Name = "Base"
-    base.Anchored = true
-    base.CanCollide = true
-    base.Size = definition.size
-    base.Position = Vector3.new(poi.position.X, groundY + definition.size.Y / 2, poi.position.Z)
+    -- Try to use MapAssets for real building spawning
+    local MapAssets = framework:GetModule("MapAssets")
+    local buildingsSpawned = false
 
-    -- Set material based on POI type
-    if definition.biome == "facility" then
-        base.Material = Enum.Material.Concrete
-        base.Color = Color3.fromRGB(128, 128, 128)
-    elseif definition.biome == "coastal" then
-        base.Material = Enum.Material.Wood
-        base.Color = Color3.fromRGB(139, 90, 43)
-    else
-        base.Material = Enum.Material.Slate
-        base.Color = Color3.fromRGB(100, 100, 100)
+    if MapAssets then
+        -- Use POI name to look up building configuration in AssetManifest
+        local spawnedBuildings = MapAssets:SpawnPOIBuildings(definition.name, poi.position)
+
+        if spawnedBuildings and #spawnedBuildings > 0 then
+            buildingsSpawned = true
+            -- Reparent buildings to POI folder
+            for _, building in ipairs(spawnedBuildings) do
+                if building and building.Parent then
+                    building.Parent = poiFolder
+                end
+            end
+            framework.Log("Info", "Spawned %d buildings for POI '%s' using MapAssets", #spawnedBuildings, definition.name)
+
+            -- Set the first building as primary part if available
+            local firstBuilding = spawnedBuildings[1]
+            if firstBuilding and firstBuilding:IsA("Model") and firstBuilding.PrimaryPart then
+                poiFolder.PrimaryPart = firstBuilding.PrimaryPart
+            elseif firstBuilding and firstBuilding:IsA("BasePart") then
+                poiFolder.PrimaryPart = firstBuilding
+            end
+        end
     end
 
-    base.Parent = poiFolder
-    poiFolder.PrimaryPart = base
+    -- Fallback to placeholder if MapAssets unavailable or no buildings configured
+    if not buildingsSpawned then
+        framework.Log("Debug", "Using placeholder structure for POI '%s'", definition.name)
 
-    -- Create name label (BillboardGui)
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "NameLabel"
-    billboard.Size = UDim2.new(0, 200, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, definition.size.Y / 2 + 10, 0)
-    billboard.Adornee = base
-    billboard.Parent = base
+        -- Create base platform/structure
+        local base = Instance.new("Part")
+        base.Name = "Base"
+        base.Anchored = true
+        base.CanCollide = true
+        base.Size = definition.size
+        base.Position = Vector3.new(poi.position.X, groundY + definition.size.Y / 2, poi.position.Z)
 
-    local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 1, 0)
-    nameLabel.BackgroundTransparency = 1
-    nameLabel.Text = definition.name
-    nameLabel.TextColor3 = Color3.new(1, 1, 1)
-    nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    nameLabel.TextStrokeTransparency = 0.5
-    nameLabel.TextScaled = true
-    nameLabel.Font = Enum.Font.GothamBold
-    nameLabel.Parent = billboard
+        -- Set material based on POI type
+        if definition.biome == "facility" then
+            base.Material = Enum.Material.Concrete
+            base.Color = Color3.fromRGB(128, 128, 128)
+        elseif definition.biome == "coastal" then
+            base.Material = Enum.Material.Wood
+            base.Color = Color3.fromRGB(139, 90, 43)
+        else
+            base.Material = Enum.Material.Slate
+            base.Color = Color3.fromRGB(100, 100, 100)
+        end
+
+        base.Parent = poiFolder
+        poiFolder.PrimaryPart = base
+    end
+
+    -- Create name label (BillboardGui) - attach to primary part or first child
+    local labelTarget = poiFolder.PrimaryPart or poiFolder:FindFirstChildWhichIsA("BasePart", true)
+    if labelTarget then
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "NameLabel"
+        billboard.Size = UDim2.new(0, 200, 0, 50)
+        billboard.StudsOffset = Vector3.new(0, definition.size.Y / 2 + 10, 0)
+        billboard.Adornee = labelTarget
+        billboard.Parent = labelTarget
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text = definition.name
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        nameLabel.TextStrokeTransparency = 0.5
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Parent = billboard
+    end
 
     -- Store reference in POI data
     poi.model = poiFolder
@@ -1860,13 +2056,22 @@ end
 function MapService:OpenSupplyDrop(event, player)
     framework.Log("Info", "%s opened supply drop", player.Name)
 
-    -- Give legendary loot
-    local weaponService = framework:GetService("WeaponService")
-    if weaponService then
-        -- Give random legendary weapon
-        local legendaryWeapons = {"scar", "bolt_sniper"}
-        local weapon = legendaryWeapons[math.random(#legendaryWeapons)]
-        weaponService:GiveWeapon(player, weapon)
+    -- Use LootSystem for GDD-compliant supply drop rarity distribution
+    -- Supply Drop: 0% Common, 10% Uncommon, 30% Rare, 40% Epic, 20% Legendary
+    local lootSystem = framework:GetModule("LootSystem")
+    if lootSystem and lootSystem.SpawnSupplyDropLoot then
+        local dropPosition = event.position or (event.supplyModel and event.supplyModel.Position)
+        if dropPosition then
+            lootSystem:SpawnSupplyDropLoot(dropPosition, math.random(3, 4))
+        end
+    else
+        -- Fallback: Give legendary weapon directly (legacy behavior)
+        local weaponService = framework:GetService("WeaponService")
+        if weaponService then
+            local legendaryWeapons = {"scar", "bolt_sniper"}
+            local weapon = legendaryWeapons[math.random(#legendaryWeapons)]
+            weaponService:GiveWeapon(player, weapon)
+        end
     end
 
     -- Destroy the crate
@@ -1886,8 +2091,13 @@ end
 function MapService:ApplyEventEffects(event)
     local eventDef = event.definition
 
+    -- Track players affected by slow effects for cleanup
+    if not event.affectedPlayers then
+        event.affectedPlayers = {}
+    end
+
     -- Damage-over-time events (like toxic gas)
-    if eventDef.damagePerSecond then
+    if eventDef.damagePerSecond or eventDef.slowEffect then
         for _, player in ipairs(Players:GetPlayers()) do
             local character = player.Character
             if not character then continue end
@@ -1897,12 +2107,64 @@ function MapService:ApplyEventEffects(event)
 
             if rootPart and humanoid and humanoid.Health > 0 then
                 local distance = (rootPart.Position - event.position).Magnitude
+                local inRadius = distance <= eventDef.radius
 
-                if distance <= eventDef.radius then
-                    humanoid:TakeDamage(eventDef.damagePerSecond * 0.2)  -- Apply per update tick
+                if inRadius then
+                    -- Apply damage over time
+                    if eventDef.damagePerSecond then
+                        humanoid:TakeDamage(eventDef.damagePerSecond * 0.2)  -- Apply per update tick
+                    end
+
+                    -- Apply slow effect (GDD: toxic gas has DoT + slow)
+                    if eventDef.slowEffect then
+                        local defaultWalkSpeed = 16  -- Roblox default
+                        local slowedSpeed = defaultWalkSpeed * (1 - eventDef.slowEffect)
+
+                        if humanoid.WalkSpeed > slowedSpeed then
+                            -- Store original speed if not already stored
+                            if not event.affectedPlayers[player.UserId] then
+                                event.affectedPlayers[player.UserId] = {
+                                    originalWalkSpeed = humanoid.WalkSpeed,
+                                }
+                            end
+                            humanoid.WalkSpeed = slowedSpeed
+                        end
+                    end
+                else
+                    -- Player left the effect radius - restore normal speed
+                    if eventDef.slowEffect and event.affectedPlayers[player.UserId] then
+                        local original = event.affectedPlayers[player.UserId].originalWalkSpeed
+                        if original then
+                            humanoid.WalkSpeed = original
+                        end
+                        event.affectedPlayers[player.UserId] = nil
+                    end
                 end
             end
         end
+    end
+end
+
+--[[
+    Clean up effects when event ends (restore player speeds, etc.)
+
+    @param event table - Event instance
+]]
+function MapService:CleanupEventEffects(event)
+    local eventDef = event.definition
+
+    -- Restore walk speeds for any players still affected
+    if eventDef.slowEffect and event.affectedPlayers then
+        for userId, data in pairs(event.affectedPlayers) do
+            local player = Players:GetPlayerByUserId(userId)
+            if player and player.Character then
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid and data.originalWalkSpeed then
+                    humanoid.WalkSpeed = data.originalWalkSpeed
+                end
+            end
+        end
+        event.affectedPlayers = {}
     end
 end
 
@@ -1916,6 +2178,9 @@ function MapService:EndEvent(eventId)
     if not event then return end
 
     framework.Log("Info", "Environmental event ended: %s", event.definition.name)
+
+    -- Clean up event effects (restore player speeds, etc.)
+    self:CleanupEventEffects(event)
 
     -- Clean up visual effects
     if event.zoneIndicator then

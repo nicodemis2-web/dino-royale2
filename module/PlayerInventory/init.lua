@@ -551,11 +551,17 @@ function PlayerInventory:GiveConsumable(player, itemId, amount)
     return true
 end
 
+-- Active healing channels (UserId -> {itemId, startTime, duration, thread})
+local activeHealingChannels = {}
+
 --[[
-    Use a consumable item
+    Use a consumable item (with GDD-compliant use times)
+    Items now require channeling before taking effect.
+    Taking damage or moving interrupts the channel.
+
     @param player Player - The player
     @param itemId string - Item identifier
-    @return boolean - Success status
+    @return boolean - Success status (started channeling)
 ]]
 function PlayerInventory:UseConsumable(player, itemId)
     local data = playerData[player.UserId]
@@ -564,9 +570,141 @@ function PlayerInventory:UseConsumable(player, itemId)
     local current = data.consumables[itemId] or 0
     if current <= 0 then return false end
 
-    data.consumables[itemId] = current - 1
+    -- Check if already channeling
+    if activeHealingChannels[player.UserId] then
+        framework.Log("Debug", "%s already channeling a heal", player.Name)
+        return false
+    end
 
-    -- Apply the item effect
+    -- Get use time from config (GDD compliant)
+    local useTimes = gameConfig.Loot.healingUseTimes
+    local useTime = useTimes and useTimes[itemId] or 0
+
+    -- If no use time configured, apply instantly (legacy behavior)
+    if useTime <= 0 then
+        return self:ApplyConsumableEffect(player, itemId)
+    end
+
+    -- Reserve the item (remove from inventory now, refund if cancelled)
+    data.consumables[itemId] = current - 1
+    self:SyncInventory(player)
+
+    -- Notify client that channeling started
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local channelRemote = remotes:FindFirstChild("HealingChannelStarted")
+        if channelRemote then
+            channelRemote:FireClient(player, {
+                itemId = itemId,
+                duration = useTime,
+            })
+        end
+    end
+
+    -- Store channel state
+    local channelData = {
+        itemId = itemId,
+        startTime = tick(),
+        duration = useTime,
+        startHealth = nil,
+    }
+
+    -- Track starting health for interrupt detection
+    local character = player.Character
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    if humanoid then
+        channelData.startHealth = humanoid.Health
+    end
+
+    activeHealingChannels[player.UserId] = channelData
+
+    -- Start channel thread
+    channelData.thread = task.spawn(function()
+        local interrupted = false
+        local elapsed = 0
+
+        -- Check for interrupts during channel
+        while elapsed < useTime do
+            task.wait(0.1)
+            elapsed = tick() - channelData.startTime
+
+            -- Check if channel was cancelled externally
+            if not activeHealingChannels[player.UserId] then
+                interrupted = true
+                break
+            end
+
+            -- Check if player took damage (interrupt condition)
+            if humanoid and channelData.startHealth then
+                if humanoid.Health < channelData.startHealth then
+                    interrupted = true
+                    framework.Log("Debug", "%s healing interrupted by damage", player.Name)
+                    break
+                end
+            end
+
+            -- Check if player is still alive
+            if not humanoid or humanoid.Health <= 0 then
+                interrupted = true
+                break
+            end
+        end
+
+        -- Clear channel state
+        activeHealingChannels[player.UserId] = nil
+
+        if interrupted then
+            -- Refund the item
+            local currentData = playerData[player.UserId]
+            if currentData then
+                currentData.consumables[itemId] = (currentData.consumables[itemId] or 0) + 1
+                self:SyncInventory(player)
+            end
+
+            -- Notify client of interruption
+            if remotes then
+                local interruptRemote = remotes:FindFirstChild("HealingChannelInterrupted")
+                if interruptRemote then
+                    interruptRemote:FireClient(player, itemId)
+                end
+            end
+        else
+            -- Channel completed, apply the effect
+            self:ApplyConsumableEffect(player, itemId)
+
+            -- Notify client of completion
+            if remotes then
+                local completeRemote = remotes:FindFirstChild("ItemConsumed")
+                if completeRemote then
+                    completeRemote:FireClient(player, itemId)
+                end
+            end
+        end
+    end)
+
+    return true
+end
+
+--[[
+    Cancel active healing channel
+    @param player Player - The player
+]]
+function PlayerInventory:CancelHealingChannel(player)
+    local channel = activeHealingChannels[player.UserId]
+    if channel then
+        -- Thread will detect cancellation and handle refund
+        activeHealingChannels[player.UserId] = nil
+        framework.Log("Debug", "%s cancelled healing channel", player.Name)
+    end
+end
+
+--[[
+    Apply the effect of a consumable item
+    @param player Player - The player
+    @param itemId string - Item identifier
+    @return boolean - Success status
+]]
+function PlayerInventory:ApplyConsumableEffect(player, itemId)
     local healValues = gameConfig.Loot.healingValues
     local character = player.Character
     local humanoid = character and character:FindFirstChild("Humanoid")
@@ -575,20 +713,18 @@ function PlayerInventory:UseConsumable(player, itemId)
         -- Health items
         if itemId == "bandage" or itemId == "medkit" or itemId == "healthKit" then
             humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + healValues[itemId])
+            framework.Log("Debug", "%s healed for %d HP using %s", player.Name, healValues[itemId], itemId)
         end
-        -- Shield items would need a separate shield system
+        -- Shield items - check for shield attribute or separate system
+        if itemId == "miniShield" or itemId == "shield" or itemId == "bigShield" then
+            local currentShield = humanoid:GetAttribute("Shield") or 0
+            local maxShield = gameConfig.Player.maxShield or 100
+            local newShield = math.min(maxShield, currentShield + healValues[itemId])
+            humanoid:SetAttribute("Shield", newShield)
+            framework.Log("Debug", "%s gained %d shield using %s", player.Name, healValues[itemId], itemId)
+        end
     end
 
-    -- Notify client
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes then
-        local itemRemote = remotes:FindFirstChild("ItemConsumed")
-        if itemRemote then
-            itemRemote:FireClient(player, itemId)
-        end
-    end
-
-    self:SyncInventory(player)
     return true
 end
 

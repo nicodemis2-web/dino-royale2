@@ -428,11 +428,18 @@ end
 
 --[[
     Spawn loot at a specific point
+    @param spawnPoint table - Contains position, type, rarity, and optional sourceType
 ]]
 function LootSystem:SpawnLootAtPoint(spawnPoint)
     -- Determine what to spawn
     local lootType = self:SelectLootType()
-    local item = self:SelectItem(lootType, spawnPoint.rarity)
+
+    -- Use GDD-compliant rarity distribution based on source type
+    -- Default to "floor" for ground loot spawn points
+    local sourceType = spawnPoint.sourceType or "floor"
+    local rarity = spawnPoint.rarity or self:SelectRarityForSource(sourceType)
+
+    local item = self:SelectItem(lootType, rarity)
 
     if not item then return nil end
 
@@ -468,6 +475,77 @@ function LootSystem:SpawnLootAtPoint(spawnPoint)
     end
 
     return lootData
+end
+
+--[[
+    Select rarity based on loot source type (GDD compliant)
+
+    GDD Rarity Distributions:
+    - Floor Loot: 50% Common, 30% Uncommon, 15% Rare, 4% Epic, 1% Legendary
+    - Chests: 30% Common, 35% Uncommon, 25% Rare, 8% Epic, 2% Legendary
+    - Supply Drop: 0% Common, 10% Uncommon, 30% Rare, 40% Epic, 20% Legendary
+    - Boss Drop: 0% Common, 0% Uncommon, 20% Rare, 50% Epic, 30% Legendary
+
+    @param sourceType string - "floor", "chest", "supply_drop", or "boss_drop"
+    @return string - Selected rarity
+]]
+function LootSystem:SelectRarityForSource(sourceType)
+    local roll = math.random() * 100
+
+    if sourceType == "floor" then
+        -- Floor Loot: 50% Common, 30% Uncommon, 15% Rare, 4% Epic, 1% Legendary
+        if roll <= 50 then
+            return "common"
+        elseif roll <= 80 then
+            return "uncommon"
+        elseif roll <= 95 then
+            return "rare"
+        elseif roll <= 99 then
+            return "epic"
+        else
+            return "legendary"
+        end
+
+    elseif sourceType == "chest" then
+        -- Chests: 30% Common, 35% Uncommon, 25% Rare, 8% Epic, 2% Legendary
+        if roll <= 30 then
+            return "common"
+        elseif roll <= 65 then
+            return "uncommon"
+        elseif roll <= 90 then
+            return "rare"
+        elseif roll <= 98 then
+            return "epic"
+        else
+            return "legendary"
+        end
+
+    elseif sourceType == "supply_drop" then
+        -- Supply Drop: 0% Common, 10% Uncommon, 30% Rare, 40% Epic, 20% Legendary
+        if roll <= 10 then
+            return "uncommon"
+        elseif roll <= 40 then
+            return "rare"
+        elseif roll <= 80 then
+            return "epic"
+        else
+            return "legendary"
+        end
+
+    elseif sourceType == "boss_drop" then
+        -- Boss Drop: 0% Common, 0% Uncommon, 20% Rare, 50% Epic, 30% Legendary
+        if roll <= 20 then
+            return "rare"
+        elseif roll <= 70 then
+            return "epic"
+        else
+            return "legendary"
+        end
+
+    else
+        -- Default fallback to floor loot distribution
+        return self:SelectRarityForSource("floor")
+    end
 end
 
 --[[
@@ -563,9 +641,25 @@ function LootSystem:CreateLootModel(lootData)
     local rayOrigin = Vector3.new(spawnPos.X, 500, spawnPos.Z)  -- Start high
     local rayDirection = Vector3.new(0, -600, 0)  -- Ray down
 
+    -- Build exclusion list to find actual terrain, not placed objects
+    local excludeList = {}
+    local groundLoot = workspace:FindFirstChild("GroundLoot")
+    local poisFolder = workspace:FindFirstChild("POIs")
+    local floraFolder = workspace:FindFirstChild("Flora")
+    local decorFolder = workspace:FindFirstChild("Decorations")
+    local dinoFolder = workspace:FindFirstChild("Dinosaurs")
+    local lobbyPlatform = workspace:FindFirstChild("LobbyPlatform")
+
+    if groundLoot then table.insert(excludeList, groundLoot) end
+    if poisFolder then table.insert(excludeList, poisFolder) end
+    if floraFolder then table.insert(excludeList, floraFolder) end
+    if decorFolder then table.insert(excludeList, decorFolder) end
+    if dinoFolder then table.insert(excludeList, dinoFolder) end
+    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("GroundLoot") or workspace}
+    raycastParams.FilterDescendantsInstances = excludeList
     raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
 
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
@@ -860,9 +954,27 @@ function LootSystem:SpawnChest(chestData)
     local rayOrigin = Vector3.new(spawnPos.X, 500, spawnPos.Z)  -- Start high
     local rayDirection = Vector3.new(0, -600, 0)  -- Ray down
 
+    -- Build exclusion list to find actual terrain, not placed objects
+    local excludeList = {}
+    local chests = workspace:FindFirstChild("Chests")
+    local poisFolder = workspace:FindFirstChild("POIs")
+    local floraFolder = workspace:FindFirstChild("Flora")
+    local decorFolder = workspace:FindFirstChild("Decorations")
+    local groundLoot = workspace:FindFirstChild("GroundLoot")
+    local dinoFolder = workspace:FindFirstChild("Dinosaurs")
+    local lobbyPlatform = workspace:FindFirstChild("LobbyPlatform")
+
+    if chests then table.insert(excludeList, chests) end
+    if poisFolder then table.insert(excludeList, poisFolder) end
+    if floraFolder then table.insert(excludeList, floraFolder) end
+    if decorFolder then table.insert(excludeList, decorFolder) end
+    if groundLoot then table.insert(excludeList, groundLoot) end
+    if dinoFolder then table.insert(excludeList, dinoFolder) end
+    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Chests") or workspace}
+    raycastParams.FilterDescendantsInstances = excludeList
     raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
 
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
@@ -1069,15 +1181,9 @@ function LootSystem:OpenChest(player, chestData, chestModel)
         local spawnPoint = {
             position = basePos + offset,
             type = "any",
-            rarity = nil,
+            sourceType = "chest",  -- Use GDD-compliant chest rarity distribution
+            rarity = nil,  -- Will be selected by SelectRarityForSource("chest")
         }
-
-        -- Higher chance of better loot from chests
-        if math.random() < 0.3 then
-            spawnPoint.rarity = "rare"
-        elseif math.random() < 0.1 then
-            spawnPoint.rarity = "epic"
-        end
 
         self:SpawnLootAtPoint(spawnPoint)
     end
@@ -1218,6 +1324,81 @@ function LootSystem:SpawnLootItem(itemId, itemType, position, rarity, amount)
     end
 
     return lootData
+end
+
+--[[
+    Spawn loot from a supply drop (GDD compliant)
+    Supply Drop distribution: 0% Common, 10% Uncommon, 30% Rare, 40% Epic, 20% Legendary
+
+    @param position Vector3 - Position to spawn loot around
+    @param numItems number - Number of items to spawn (default 3-4)
+    @return table - Array of spawned loot data
+]]
+function LootSystem:SpawnSupplyDropLoot(position, numItems)
+    numItems = numItems or math.random(3, 4)
+    local spawnedLoot = {}
+
+    for i = 1, numItems do
+        local angle = (i / numItems) * math.pi * 2
+        local offset = Vector3.new(math.cos(angle) * 2, 0.5, math.sin(angle) * 2)
+
+        local spawnPoint = {
+            position = position + offset,
+            type = "any",
+            sourceType = "supply_drop",  -- GDD-compliant supply drop rarity
+            rarity = nil,
+        }
+
+        local loot = self:SpawnLootAtPoint(spawnPoint)
+        if loot then
+            table.insert(spawnedLoot, loot)
+        end
+    end
+
+    framework.Log("Info", "Spawned %d items from supply drop at %s", #spawnedLoot, tostring(position))
+    return spawnedLoot
+end
+
+--[[
+    Spawn loot from a boss kill (GDD compliant)
+    Boss Drop distribution: 0% Common, 0% Uncommon, 20% Rare, 50% Epic, 30% Legendary
+
+    @param position Vector3 - Position to spawn loot around (boss death location)
+    @param bossType string - Type of boss killed (affects loot quantity)
+    @return table - Array of spawned loot data
+]]
+function LootSystem:SpawnBossDropLoot(position, bossType)
+    -- Boss drops scale with boss type
+    local numItems = 3
+    if bossType == "alpha_rex" then
+        numItems = 5
+    elseif bossType == "alpha_spino" then
+        numItems = 4
+    elseif bossType == "alpha_raptor" then
+        numItems = 3
+    end
+
+    local spawnedLoot = {}
+
+    for i = 1, numItems do
+        local angle = (i / numItems) * math.pi * 2
+        local offset = Vector3.new(math.cos(angle) * 3, 0.5, math.sin(angle) * 3)
+
+        local spawnPoint = {
+            position = position + offset,
+            type = "any",
+            sourceType = "boss_drop",  -- GDD-compliant boss drop rarity
+            rarity = nil,
+        }
+
+        local loot = self:SpawnLootAtPoint(spawnPoint)
+        if loot then
+            table.insert(spawnedLoot, loot)
+        end
+    end
+
+    framework.Log("Info", "Spawned %d items from %s boss kill at %s", #spawnedLoot, bossType or "unknown", tostring(position))
+    return spawnedLoot
 end
 
 return LootSystem

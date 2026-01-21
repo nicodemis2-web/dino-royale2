@@ -219,16 +219,18 @@ end
 
 --[[
     Dropping Phase - Players spawn/drop into map
+    Uses drop spawn so players fall from the sky
 ]]
 function GameService:DroppingPhase()
     framework.Log("Info", "Dropping players into map...")
 
-    -- Teleport players to drop positions
+    -- Teleport players to drop positions (they'll fall from drop height)
     local spawnPositions = self:GetDropPositions()
 
     for i, player in ipairs(Players:GetPlayers()) do
         local spawnPos = spawnPositions[((i - 1) % #spawnPositions) + 1]
-        self:SpawnPlayer(player, spawnPos)
+        -- Use drop spawn - player falls from sky
+        self:DropSpawnPlayer(player, spawnPos)
     end
 
     -- Wait for all players to land
@@ -527,6 +529,23 @@ function GameService:EliminatePlayer(player, killer)
 
     framework.Log("Info", "Player eliminated: %s", player.Name)
 
+    -- Track stats via DataService
+    local dataService = framework:GetService("DataService")
+    if dataService then
+        -- Record death for eliminated player
+        dataService:AddDeath(player)
+
+        -- Record kill for killer (if player, not dinosaur)
+        if killer and killer:IsA("Player") then
+            dataService:AddKill(killer)
+        end
+
+        -- Calculate placement
+        local aliveCount = self:GetAliveCount()
+        local placement = aliveCount + 1  -- They placed one worse than remaining
+        dataService:AddMatchPlayed(player, placement)
+    end
+
     -- Notify clients
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
@@ -632,6 +651,24 @@ end
 function GameService:DeclareVictory(winner)
     framework.Log("Info", "Victory declared!")
 
+    -- Track win stats via DataService
+    local dataService = framework:GetService("DataService")
+    if dataService then
+        -- winner can be a Player (solo) or table of players (team)
+        if typeof(winner) == "Instance" and winner:IsA("Player") then
+            dataService:AddWin(winner)
+            dataService:AddMatchPlayed(winner, 1)  -- 1st place
+        elseif type(winner) == "table" then
+            -- Team victory - all team members get the win
+            for _, player in ipairs(winner) do
+                if typeof(player) == "Instance" and player:IsA("Player") then
+                    dataService:AddWin(player)
+                    dataService:AddMatchPlayed(player, 1)
+                end
+            end
+        end
+    end
+
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
         remotes.VictoryDeclared:FireAllClients(winner)
@@ -684,13 +721,103 @@ function GameService:GetDropPositions()
 end
 
 --[[
-    Spawn a player at position
+    Find a safe spawn position above terrain using raycast
+    @param position Vector3 - Target X, Z position (Y is used as starting height for raycast)
+    @return Vector3 - Safe spawn position above terrain
+]]
+function GameService:FindSafeSpawnPosition(position)
+    -- Start raycast from high up to find terrain
+    local raycastStart = Vector3.new(position.X, position.Y + 100, position.Z)
+    local raycastDirection = Vector3.new(0, -1000, 0)  -- Cast down
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = {}  -- Don't filter anything
+    raycastParams.IgnoreWater = false
+
+    local result = workspace:Raycast(raycastStart, raycastDirection, raycastParams)
+
+    if result then
+        -- Found terrain, spawn slightly above it
+        return Vector3.new(position.X, result.Position.Y + 5, position.Z)
+    else
+        -- No terrain found, use original position with safe Y
+        return Vector3.new(position.X, math.max(position.Y, 50), position.Z)
+    end
+end
+
+--[[
+    Spawn a player at position (immediate teleport, finds safe ground level)
+    @param player Player - The player to spawn
+    @param position Vector3 - Target position (will find safe ground level)
 ]]
 function GameService:SpawnPlayer(player, position)
     local character = player.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
-        character.HumanoidRootPart.CFrame = CFrame.new(position)
+        -- Find safe position above terrain
+        local safePosition = self:FindSafeSpawnPosition(position)
+        character.HumanoidRootPart.CFrame = CFrame.new(safePosition)
     end
+end
+
+--[[
+    Drop spawn a player from the sky (like match start)
+    Player falls from drop height and lands naturally
+    @param player Player - The player to spawn
+    @param position Vector3 - Target X, Z position (Y ignored, uses drop height)
+]]
+function GameService:DropSpawnPlayer(player, position)
+    local character = player.Character
+    if not character then return end
+
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    -- Get drop height from config
+    local dropHeight = gameConfig.Match.dropHeight or 500
+
+    -- Spawn at drop height (X, dropHeight, Z)
+    local dropPosition = Vector3.new(position.X, dropHeight, position.Z)
+    humanoidRootPart.CFrame = CFrame.new(dropPosition)
+
+    -- Ensure player can fall (reset velocity)
+    humanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+    humanoidRootPart.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+
+    framework.Log("Debug", "Drop spawned %s at height %d", player.Name, dropHeight)
+end
+
+--[[
+    Respawn a player back into the match (uses drop mechanic)
+    Called when player dies and should respawn
+    @param player Player - The player to respawn
+]]
+function GameService:RespawnPlayer(player)
+    -- Only respawn if match is active
+    if currentState ~= GameService.States.MATCH and currentState ~= GameService.States.LOBBY then
+        return
+    end
+
+    -- Get a random spawn position
+    local spawnPositions = self:GetDropPositions()
+    local spawnPos = spawnPositions[math.random(1, #spawnPositions)]
+
+    -- Mark player as alive again
+    playersAlive[player.UserId] = true
+
+    -- Use drop spawn (player falls from sky like match start)
+    self:DropSpawnPlayer(player, spawnPos)
+
+    -- Notify clients of respawn
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes then
+        local stateRemote = remotes:FindFirstChild("GameStateChanged")
+        if stateRemote then
+            stateRemote:FireClient(player, currentState, nil)
+        end
+    end
+
+    framework.Log("Info", "Player respawned: %s", player.Name)
 end
 
 --[[
@@ -716,6 +843,7 @@ function GameService:TeleportToLobby(player)
         end
     end
 
+    -- Use safe spawn (finds terrain level)
     self:SpawnPlayer(player, lobbySpawn)
 end
 

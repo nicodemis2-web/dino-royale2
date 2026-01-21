@@ -75,6 +75,8 @@ print("[DinoRoyale] GameConfig loaded")
         DinoService → MapService (queries spawn points)
 ]]
 local serviceInitOrder = {
+    "DataService",      -- Player stats & persistence (must be first for other services to record stats)
+    "AudioService",     -- Game audio system (dinosaur sounds, environmental, UI)
     "TerrainSetup",     -- Procedural terrain generation (for testing without imported assets)
     "GameService",      -- Match state machine (LOBBY → STARTING → DROPPING → MATCH → ENDING → CLEANUP)
     "MapService",       -- Map/biome system (jungle, volcanic, swamp, facility, plains, coastal)
@@ -147,6 +149,25 @@ for _, moduleName in ipairs(moduleInitOrder) do
         end
     else
         warn(string.format("[DinoRoyale] ✗ %s not found", moduleName))
+    end
+end
+
+--=============================================================================
+-- ASSET PRELOADING
+-- Preload critical assets after MapAssets is initialized
+--=============================================================================
+
+local MapAssets = framework:GetModule("MapAssets")
+if MapAssets then
+    print("[DinoRoyale] Preloading game assets...")
+    local success, err = pcall(function()
+        MapAssets:PreloadCriticalAssets()
+        MapAssets:PreloadBuildings()
+    end)
+    if success then
+        print("[DinoRoyale] ✓ Critical assets preloaded")
+    else
+        warn("[DinoRoyale] ✗ Asset preloading failed: " .. tostring(err))
     end
 end
 
@@ -330,6 +351,11 @@ local function onMatchPhaseChanged(newState, oldState)
         if SquadSystem then
             SquadSystem:Reset()
         end
+        -- Clear spawned assets (buildings, vegetation, etc.) for fresh map generation
+        if MapAssets then
+            MapAssets:ClearAll()
+            print("[DinoRoyale] MapAssets cleared for next match")
+        end
     end
 end
 
@@ -391,6 +417,26 @@ Players.PlayerAdded:Connect(function(player)
             stateRemote:FireClient(player, GameService:GetState(), nil)
         end
     end
+
+    -- Handle character respawns (when player dies and respawns)
+    -- This ensures players drop back into the game properly
+    player.CharacterAdded:Connect(function(character)
+        -- Wait a moment for character to fully load
+        task.wait(0.1)
+
+        -- Check if this is a respawn during an active match
+        if GameService then
+            local state = GameService:GetState()
+            -- Only use drop respawn during active match
+            if state == "Match" then
+                -- Use drop spawn mechanic (player falls from sky)
+                GameService:RespawnPlayer(player)
+            elseif state == "Lobby" then
+                -- In lobby, just ensure safe ground spawn
+                GameService:TeleportToLobby(player)
+            end
+        end
+    end)
 end)
 
 --[[

@@ -8,7 +8,53 @@
         local DinoPlayer = Framework:GetModule("DinoPlayer")
 ]]
 
-local Framework = {}
+--!strict
+
+--==============================================================================
+-- TYPE DEFINITIONS
+--==============================================================================
+
+-- Log levels enum
+export type LogLevel = "Debug" | "Info" | "Warn" | "Error"
+
+-- Module types enum
+export type ModuleType = "Class" | "Function" | "Service" | "Module" | "Utility"
+
+-- Service interface (all services should implement this)
+export type ServiceInterface = {
+    Initialize: ((self: any) -> boolean)?,
+    Shutdown: ((self: any) -> ())?,
+}
+
+-- Framework configuration type
+export type FrameworkConfig = {
+    DEBUG_MODE: boolean,
+    LOG_LEVEL: LogLevel,
+    VERSION: string,
+}
+
+-- Framework type definition
+export type Framework = {
+    Types: {[string]: ModuleType},
+    Config: FrameworkConfig,
+    Log: (level: LogLevel, message: string, ...any) -> (),
+    GetService: (self: Framework, serviceName: string) -> any?,
+    GetModule: (self: Framework, moduleName: string) -> any?,
+    GetUtility: (self: Framework, utilityName: string) -> any?,
+    RegisterService: (self: Framework, name: string, service: any) -> (),
+    RegisterModule: (self: Framework, name: string, mod: any) -> (),
+    IsServer: (self: Framework) -> boolean,
+    IsClient: (self: Framework) -> boolean,
+    Initialize: (self: Framework) -> (),
+    Shutdown: (self: Framework) -> (),
+    WaitForReady: (self: Framework) -> boolean,
+}
+
+--==============================================================================
+-- MODULE DEFINITION
+--==============================================================================
+
+local Framework = {} :: Framework
 Framework.__index = Framework
 
 -- Module type definitions
@@ -21,23 +67,26 @@ Framework.Types = {
 }
 
 -- Internal storage
-local services = {}
-local modules = {}
-local utilities = {}
-local initialized = false
-local isServer = game:GetService("RunService"):IsServer()
+local services: {[string]: any} = {}
+local modules: {[string]: any} = {}
+local utilities: {[string]: any} = {}
+local initialized: boolean = false
+local isServer: boolean = game:GetService("RunService"):IsServer()
 
 -- Configuration
 Framework.Config = {
     DEBUG_MODE = true,
-    LOG_LEVEL = "Info", -- Debug, Info, Warn, Error
+    LOG_LEVEL = "Info" :: LogLevel,
     VERSION = "1.0.0"
 }
 
 --[[
     Logging utility
+    @param level LogLevel - Log severity level
+    @param message string - Message format string
+    @param ... any - Format arguments
 ]]
-local function log(level, message, ...)
+local function log(level: LogLevel, message: string, ...: any): ()
     if not Framework.Config.DEBUG_MODE then return end
 
     local levels = {Debug = 1, Info = 2, Warn = 3, Error = 4}
@@ -200,12 +249,13 @@ function Framework:Initialize()
     log("Info", "Initializing Dino Royale Framework v%s", Framework.Config.VERSION)
 
     -- Initialize core services in order
-    -- Note: AudioService removed - not yet implemented
     local coreServices = {
+        "DataService",   -- First, so stats are ready
         "GameService",
         "WeaponService",
         "StormService",
         "DinoService",
+        "AudioService",
     }
 
     for _, serviceName in ipairs(coreServices) do

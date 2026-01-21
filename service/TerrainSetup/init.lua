@@ -1564,21 +1564,32 @@ end
 
 --[[
     Get terrain height at position using raycast
+    IMPORTANT: Must find actual Terrain voxels, not placed Parts
 ]]
 function TerrainSetup:GetTerrainHeight(position)
     local rayOrigin = Vector3.new(position.X, 500, position.Z)
     local rayDirection = Vector3.new(0, -1000, 0)
 
-    -- Collect folders to exclude from raycast (buildings, flora, etc.)
-    -- We only want to hit the actual terrain, not placed objects
+    -- Collect ALL folders to exclude from raycast
+    -- We only want to hit the actual Terrain, not placed objects
     local excludeList = {}
     local poisFolder = Workspace:FindFirstChild("POIs")
     local floraFolder = Workspace:FindFirstChild("Flora")
     local lobbyPlatform = Workspace:FindFirstChild("LobbyPlatform")
+    local decorFolder = Workspace:FindFirstChild("Decorations")
+    local dinoFolder = Workspace:FindFirstChild("Dinosaurs")
+    local groundLoot = Workspace:FindFirstChild("GroundLoot")
+    local chests = Workspace:FindFirstChild("Chests")
+    local poiBldgs = Workspace:FindFirstChild("POIBuildings")
 
     if poisFolder then table.insert(excludeList, poisFolder) end
     if floraFolder then table.insert(excludeList, floraFolder) end
     if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+    if decorFolder then table.insert(excludeList, decorFolder) end
+    if dinoFolder then table.insert(excludeList, dinoFolder) end
+    if groundLoot then table.insert(excludeList, groundLoot) end
+    if chests then table.insert(excludeList, chests) end
+    if poiBldgs then table.insert(excludeList, poiBldgs) end
 
     -- Create raycast params that exclude placed objects
     local raycastParams = RaycastParams.new()
@@ -1589,28 +1600,60 @@ function TerrainSetup:GetTerrainHeight(position)
     local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
     if result then
-        return result.Position.Y
+        -- Only accept if we hit actual Terrain, not a Part
+        if result.Instance and result.Instance:IsA("Terrain") then
+            return result.Position.Y
+        end
+        -- If we hit something else (shouldn't happen with exclusions), log it
+        framework.Log("Debug", "GetTerrainHeight hit non-terrain: %s at Y=%d",
+            result.Instance and result.Instance.Name or "unknown", result.Position.Y)
     end
 
-    -- Fallback: try to read terrain height directly from Roblox terrain voxels
-    -- This handles cases where raycast fails but terrain exists
-    local success, material = pcall(function()
-        return terrain:ReadVoxels(
-            Region3.new(
-                Vector3.new(position.X - 2, 0, position.Z - 2),
-                Vector3.new(position.X + 2, 200, position.Z + 2)
-            ):ExpandToGrid(4),
-            4
-        )
+    -- PRIMARY FALLBACK: Read terrain voxels directly
+    -- This is more reliable than raycast for procedural terrain
+    -- ReadVoxels returns: materials[x][y][z], occupancies[x][y][z]
+    local success, materials, occupancies = pcall(function()
+        local region = Region3.new(
+            Vector3.new(position.X - 2, 0, position.Z - 2),
+            Vector3.new(position.X + 2, 200, position.Z + 2)
+        ):ExpandToGrid(4)
+        return terrain:ReadVoxels(region, 4)
     end)
 
-    -- Find highest occupied voxel
-    if success and material and #material > 0 and #material[1] > 0 and #material[1][1] > 0 then
-        for y = #material[1][1], 1, -1 do
-            if material[1][1][y] ~= Enum.Material.Air and material[1][1][y] ~= Enum.Material.Water then
-                return y * 4  -- Convert voxel Y to world Y (4 studs per voxel)
+    -- Find highest occupied voxel (iterate Y from top to bottom)
+    if success and materials and #materials > 0 then
+        local xSize = #materials
+        local ySize = #materials[1]
+        local zSize = #materials[1][1]
+        local midX = math.ceil(xSize / 2)
+        local midZ = math.ceil(zSize / 2)
+
+        -- Search from top to bottom at the center of our sample
+        for y = ySize, 1, -1 do
+            local mat = materials[midX][y][midZ]
+            if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                -- Voxel Y index to world Y: region starts at 0, each voxel is 4 studs
+                local worldY = (y - 1) * 4
+                return worldY
             end
         end
+    end
+
+    -- FINAL FALLBACK: Calculate expected height based on island generation formula
+    -- This matches the GenerateIslandTerrain logic
+    local islandRadius = MAP_CONFIG.islandRadius
+    local distFromCenter = math.sqrt(position.X * position.X + position.Z * position.Z)
+
+    if distFromCenter < islandRadius then
+        local normalizedDist = distFromCenter / islandRadius
+        local heightFalloff = 1 - (normalizedDist ^ 2)
+        local noise = math.noise(position.X / 200, position.Z / 200) * 0.5 + 0.5
+        local detailNoise = math.noise(position.X / 50, position.Z / 50) * 0.3
+        local calculatedHeight = MAP_CONFIG.baseHeight + (noise + detailNoise) * 50 * heightFalloff
+
+        framework.Log("Debug", "GetTerrainHeight using calculated fallback: %.1f at (%d, %d)",
+            calculatedHeight, position.X, position.Z)
+        return calculatedHeight
     end
 
     return MAP_CONFIG.baseHeight

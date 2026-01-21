@@ -40,6 +40,9 @@ local AssetManifest = nil
 -- Cache for loaded assets (prevents re-downloading)
 local assetCache = {}
 
+-- Track failed assets to avoid repeated load attempts
+local failedAssets = {}
+
 -- Folders for organizing spawned assets
 local folders = {
     buildings = nil,
@@ -50,6 +53,99 @@ local folders = {
 
 -- Track spawned instances for cleanup
 local spawnedInstances = {}
+
+-- Workspace reference for raycasting
+local Workspace = game:GetService("Workspace")
+
+--=============================================================================
+-- TERRAIN HEIGHT DETECTION
+--=============================================================================
+
+--[[
+    Get the terrain height at a given X, Z position using raycast
+    Excludes placed objects (buildings, vegetation, props) to find actual terrain
+
+    @param x number - X coordinate
+    @param z number - Z coordinate
+    @return number - Terrain height (Y value) at the position
+]]
+local function GetTerrainHeight(x, z)
+    local rayOrigin = Vector3.new(x, 1000, z)  -- Start high above
+    local rayDirection = Vector3.new(0, -2000, 0)  -- Cast downward
+
+    -- Build exclusion list - exclude all spawned asset folders
+    local excludeList = {}
+
+    -- Exclude our own folders
+    if folders.buildings and folders.buildings.Parent then
+        table.insert(excludeList, folders.buildings)
+    end
+    if folders.vegetation and folders.vegetation.Parent then
+        table.insert(excludeList, folders.vegetation)
+    end
+    if folders.dinosaurs and folders.dinosaurs.Parent then
+        table.insert(excludeList, folders.dinosaurs)
+    end
+    if folders.props and folders.props.Parent then
+        table.insert(excludeList, folders.props)
+    end
+
+    -- Also exclude common workspace folders that might contain non-terrain objects
+    local poiFolder = Workspace:FindFirstChild("POIs")
+    local floraFolder = Workspace:FindFirstChild("Flora")
+    local decorFolder = Workspace:FindFirstChild("Decorations")
+    local lobbyPlatform = Workspace:FindFirstChild("LobbyPlatform")
+    local groundLoot = Workspace:FindFirstChild("GroundLoot")
+
+    if poiFolder then table.insert(excludeList, poiFolder) end
+    if floraFolder then table.insert(excludeList, floraFolder) end
+    if decorFolder then table.insert(excludeList, decorFolder) end
+    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
+    if groundLoot then table.insert(excludeList, groundLoot) end
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = excludeList
+    raycastParams.IgnoreWater = true
+
+    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+
+    if result then
+        return result.Position.Y
+    end
+
+    -- Fallback: try to read terrain voxels directly
+    -- ReadVoxels returns: materials[x][y][z], occupancies[x][y][z]
+    local terrain = Workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        local success, materials, occupancies = pcall(function()
+            local region = Region3.new(
+                Vector3.new(x - 2, 0, z - 2),
+                Vector3.new(x + 2, 200, z + 2)
+            ):ExpandToGrid(4)
+            return terrain:ReadVoxels(region, 4)
+        end)
+
+        if success and materials and #materials > 0 then
+            local xSize = #materials
+            local ySize = #materials[1]
+            local zSize = #materials[1][1]
+            local midX = math.ceil(xSize / 2)
+            local midZ = math.ceil(zSize / 2)
+
+            -- Find highest non-air voxel at center of sample
+            for y = ySize, 1, -1 do
+                local mat = materials[midX][y][midZ]
+                if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                    return (y - 1) * 4  -- Convert voxel index to world Y
+                end
+            end
+        end
+    end
+
+    -- Final fallback to base terrain height
+    return 5
+end
 
 --=============================================================================
 -- INITIALIZATION
@@ -104,6 +200,7 @@ end
 --[[
     Load an asset from Roblox by asset ID
     Uses caching to prevent duplicate downloads
+    Tracks failed assets to avoid repeated HTTP requests
     @param assetId number - The Roblox asset ID
     @return Model|nil - The loaded model or nil on failure
 ]]
@@ -119,6 +216,12 @@ function MapAssets:LoadAsset(assetId)
         return assetCache[assetId]:Clone()
     end
 
+    -- Check if this asset already failed (avoid repeated HTTP requests)
+    if failedAssets[assetId] then
+        -- Only log once per session, not every attempt
+        return nil
+    end
+
     -- Attempt to load from Roblox
     local success, result = pcall(function()
         return InsertService:LoadAsset(assetId)
@@ -130,7 +233,9 @@ function MapAssets:LoadAsset(assetId)
         framework.Log("Info", "Asset %d loaded successfully", assetId)
         return result:Clone()
     else
-        framework.Log("Warn", "Failed to load asset %d: %s", assetId, tostring(result))
+        -- Mark as failed to prevent repeated attempts
+        failedAssets[assetId] = true
+        framework.Log("Warn", "Failed to load asset %d: %s (will use placeholder)", assetId, tostring(result))
         return nil
     end
 end
@@ -155,6 +260,72 @@ end
 --=============================================================================
 
 --[[
+    Spawn a building from the LowPolyBuildings manifest
+    @param buildingKey string - Key from AssetManifest.LowPolyBuildings (Store, House, Office, etc.)
+    @param position Vector3 - World position to spawn at
+    @param rotation number - Y-axis rotation in degrees (optional)
+    @return Model|nil - The spawned building or nil on failure
+]]
+function MapAssets:SpawnLowPolyBuilding(buildingKey, position, rotation)
+    local buildingConfig = AssetManifest.LowPolyBuildings and AssetManifest.LowPolyBuildings[buildingKey]
+    if not buildingConfig or not buildingConfig.assetId then
+        framework.Log("Warn", "Unknown or invalid LowPolyBuilding: %s", buildingKey)
+        return nil
+    end
+
+    local loaded = self:LoadAsset(buildingConfig.assetId)
+    if not loaded then
+        framework.Log("Warn", "Failed to load LowPolyBuilding asset: %s", buildingKey)
+        return nil
+    end
+
+    -- Get the actual model from the loaded container
+    local building = loaded:GetChildren()[1]
+    if not building then
+        loaded:Destroy()
+        return nil
+    end
+    building = building:Clone()
+    loaded:Destroy()
+
+    -- Get terrain height and position
+    local groundY = GetTerrainHeight(position.X, position.Z)
+
+    -- Position the building
+    if building:IsA("Model") then
+        if building.PrimaryPart then
+            local cf = CFrame.new(position.X, groundY, position.Z)
+            if rotation then
+                cf = cf * CFrame.Angles(0, math.rad(rotation), 0)
+            end
+            building:SetPrimaryPartCFrame(cf)
+        else
+            -- Find a suitable primary part
+            local basePart = building:FindFirstChildWhichIsA("BasePart", true)
+            if basePart then
+                building.PrimaryPart = basePart
+                local cf = CFrame.new(position.X, groundY, position.Z)
+                if rotation then
+                    cf = cf * CFrame.Angles(0, math.rad(rotation), 0)
+                end
+                building:SetPrimaryPartCFrame(cf)
+            end
+        end
+    elseif building:IsA("BasePart") then
+        building.Position = Vector3.new(position.X, groundY + building.Size.Y / 2, position.Z)
+        if rotation then
+            building.CFrame = building.CFrame * CFrame.Angles(0, math.rad(rotation), 0)
+        end
+    end
+
+    building.Parent = folders.buildings
+    table.insert(spawnedInstances, building)
+
+    framework.Log("Debug", "Spawned LowPolyBuilding '%s' at %s", buildingKey, tostring(position))
+    return building
+end
+
+--[[
     Spawn a building at the specified position
     @param buildingType string - Building type from AssetManifest.Buildings
     @param position Vector3 - World position to spawn at
@@ -168,29 +339,59 @@ function MapAssets:SpawnBuilding(buildingType, position, rotation)
         return nil
     end
 
-    -- For now, create a placeholder part
-    -- In production, this would load from the asset pack
-    local building = Instance.new("Model")
-    building.Name = buildingConfig.name
+    -- Get actual terrain height at this position
+    local groundY = GetTerrainHeight(position.X, position.Z)
 
-    -- Create placeholder structure
-    local footprint = buildingConfig.footprint or Vector3.new(20, 10, 20)
-    local mainPart = Instance.new("Part")
-    mainPart.Name = "Foundation"
-    mainPart.Size = footprint
-    mainPart.Position = position + Vector3.new(0, footprint.Y / 2, 0)
-    mainPart.Anchored = true
-    mainPart.Material = Enum.Material.Concrete
-    mainPart.Color = Color3.fromRGB(180, 180, 180)
-    mainPart.Parent = building
+    -- Check if building should load from an asset pack
+    local building = nil
+    local source = buildingConfig.source
 
-    -- Apply rotation if specified
-    if rotation then
-        mainPart.CFrame = mainPart.CFrame * CFrame.Angles(0, math.rad(rotation), 0)
+    -- Try to load from LowPolyUltimate pack
+    if source == "LowPolyUltimate" and AssetManifest.AssetPacks.LowPolyUltimate then
+        local packId = AssetManifest.AssetPacks.LowPolyUltimate.assetId
+        local loaded = self:LoadAsset(packId)
+        if loaded then
+            -- Search for matching building in pack
+            local searchName = buildingConfig.name or buildingType
+            local foundBuilding = loaded:FindFirstChild(searchName, true)
+            if foundBuilding then
+                building = foundBuilding:Clone()
+            end
+            loaded:Destroy()
+        end
     end
 
-    -- Set PrimaryPart for model manipulation
-    building.PrimaryPart = mainPart
+    -- Fallback to placeholder if no asset loaded
+    if not building then
+        building = Instance.new("Model")
+        building.Name = buildingConfig.name
+
+        -- Create placeholder structure
+        local footprint = buildingConfig.footprint or Vector3.new(20, 10, 20)
+        local mainPart = Instance.new("Part")
+        mainPart.Name = "Foundation"
+        mainPart.Size = footprint
+        mainPart.Position = Vector3.new(position.X, groundY + footprint.Y / 2, position.Z)
+        mainPart.Anchored = true
+        mainPart.Material = Enum.Material.Concrete
+        mainPart.Color = Color3.fromRGB(180, 180, 180)
+        mainPart.Parent = building
+
+        if rotation then
+            mainPart.CFrame = mainPart.CFrame * CFrame.Angles(0, math.rad(rotation), 0)
+        end
+
+        building.PrimaryPart = mainPart
+    else
+        -- Position loaded building
+        if building:IsA("Model") and building.PrimaryPart then
+            local cf = CFrame.new(position.X, groundY, position.Z)
+            if rotation then
+                cf = cf * CFrame.Angles(0, math.rad(rotation), 0)
+            end
+            building:SetPrimaryPartCFrame(cf)
+        end
+    end
 
     -- Parent to buildings folder
     building.Parent = folders.buildings
@@ -198,7 +399,7 @@ function MapAssets:SpawnBuilding(buildingType, position, rotation)
     -- Track for cleanup
     table.insert(spawnedInstances, building)
 
-    framework.Log("Debug", "Spawned building '%s' at %s", buildingType, tostring(position))
+    framework.Log("Debug", "Spawned building '%s' at %s (ground Y: %.1f)", buildingType, tostring(position), groundY)
     return building
 end
 
@@ -243,14 +444,137 @@ end
 --=============================================================================
 
 --[[
+    Get the appropriate tree pack for a biome
+    @param biome string - Biome name (jungle, swamp, plains, coastal, volcanic, facility)
+    @return table - Tree pack config with assetId
+]]
+function MapAssets:GetTreePackForBiome(biome)
+    local treePacks = AssetManifest.TreePacks
+    if not treePacks then return nil end
+
+    -- Find packs that match this biome
+    local matchingPacks = {}
+    for packName, packConfig in pairs(treePacks) do
+        if packConfig.biomes then
+            for _, b in ipairs(packConfig.biomes) do
+                if b == biome then
+                    table.insert(matchingPacks, packConfig)
+                    break
+                end
+            end
+        end
+    end
+
+    -- Return random matching pack or nil
+    if #matchingPacks > 0 then
+        return matchingPacks[math.random(1, #matchingPacks)]
+    end
+
+    return nil
+end
+
+--[[
+    Spawn trees from a tree pack at position
+    @param biome string - Biome name to select appropriate trees
+    @param position Vector3 - Position to spawn at
+    @param scale number - Scale multiplier (optional, default 1)
+    @return Model|nil - Spawned tree model
+]]
+function MapAssets:SpawnTreeFromPack(biome, position, scale)
+    local treePack = self:GetTreePackForBiome(biome)
+    if not treePack or not treePack.assetId then
+        -- Fallback to placeholder
+        return self:SpawnPlaceholderTree(position, scale)
+    end
+
+    local loaded = self:LoadAsset(treePack.assetId)
+    if not loaded then
+        return self:SpawnPlaceholderTree(position, scale)
+    end
+
+    -- Tree packs contain multiple tree models - pick one randomly
+    local children = loaded:GetChildren()
+    if #children == 0 then
+        loaded:Destroy()
+        return self:SpawnPlaceholderTree(position, scale)
+    end
+
+    local treeModel = children[math.random(1, #children)]:Clone()
+    loaded:Destroy()
+
+    -- Get terrain height and position tree
+    local groundY = GetTerrainHeight(position.X, position.Z)
+
+    if treeModel:IsA("Model") and treeModel.PrimaryPart then
+        local scaleFactor = scale or 1
+        -- Scale the model
+        if scaleFactor ~= 1 then
+            for _, part in ipairs(treeModel:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Size = part.Size * scaleFactor
+                end
+            end
+        end
+        treeModel:SetPrimaryPartCFrame(CFrame.new(position.X, groundY, position.Z))
+    elseif treeModel:IsA("BasePart") then
+        treeModel.Position = Vector3.new(position.X, groundY + treeModel.Size.Y / 2, position.Z)
+    end
+
+    treeModel.Parent = folders.vegetation
+    table.insert(spawnedInstances, treeModel)
+
+    return treeModel
+end
+
+--[[
+    Spawn a placeholder tree (used when no asset pack available)
+]]
+function MapAssets:SpawnPlaceholderTree(position, scale)
+    local groundY = GetTerrainHeight(position.X, position.Z)
+    scale = scale or 1
+
+    local tree = Instance.new("Model")
+    tree.Name = "PlaceholderTree"
+
+    -- Trunk
+    local trunk = Instance.new("Part")
+    trunk.Name = "Trunk"
+    trunk.Shape = Enum.PartType.Cylinder
+    trunk.Size = Vector3.new(8 * scale, 1.5 * scale, 1.5 * scale)
+    trunk.CFrame = CFrame.new(position.X, groundY + 4 * scale, position.Z) * CFrame.Angles(0, 0, math.rad(90))
+    trunk.Anchored = true
+    trunk.Material = Enum.Material.Wood
+    trunk.Color = Color3.fromRGB(101, 67, 33)
+    trunk.Parent = tree
+
+    -- Canopy
+    local canopy = Instance.new("Part")
+    canopy.Name = "Canopy"
+    canopy.Shape = Enum.PartType.Ball
+    canopy.Size = Vector3.new(6 * scale, 5 * scale, 6 * scale)
+    canopy.Position = Vector3.new(position.X, groundY + 9 * scale, position.Z)
+    canopy.Anchored = true
+    canopy.Material = Enum.Material.Grass
+    canopy.Color = Color3.fromRGB(34, 139, 34)
+    canopy.Parent = tree
+
+    tree.PrimaryPart = trunk
+    tree.Parent = folders.vegetation
+    table.insert(spawnedInstances, tree)
+
+    return tree
+end
+
+--[[
     Spawn vegetation decorations in an area
     @param vegetationType string - Vegetation type from AssetManifest.Vegetation
     @param centerPosition Vector3 - Center of the spawn area
     @param radius number - Radius of the spawn area
     @param count number - Number of vegetation items to spawn (optional)
+    @param biome string - Biome name for tree pack selection (optional)
     @return table - Array of spawned vegetation models
 ]]
-function MapAssets:SpawnVegetation(vegetationType, centerPosition, radius, count)
+function MapAssets:SpawnVegetation(vegetationType, centerPosition, radius, count, biome)
     local vegConfig = AssetManifest.Vegetation[vegetationType]
     if not vegConfig then
         framework.Log("Warn", "Unknown vegetation type: %s", vegetationType)
@@ -269,49 +593,61 @@ function MapAssets:SpawnVegetation(vegetationType, centerPosition, radius, count
         -- Random position within radius
         local angle = math.random() * math.pi * 2
         local dist = math.random() * radius
-        local position = centerPosition + Vector3.new(
-            math.cos(angle) * dist,
-            0,
-            math.sin(angle) * dist
-        )
-
-        -- Create placeholder vegetation
-        local veg = Instance.new("Part")
-        veg.Name = vegetationType .. "_" .. i
-        veg.Anchored = true
-        veg.CanCollide = false
-        veg.CastShadow = true
+        local worldX = centerPosition.X + math.cos(angle) * dist
+        local worldZ = centerPosition.Z + math.sin(angle) * dist
+        local pos = Vector3.new(worldX, 0, worldZ)
 
         -- Random scale
         local scale = scaleRange.min + math.random() * (scaleRange.max - scaleRange.min)
 
-        -- Different shapes based on type
-        if string.find(vegetationType, "Tree") then
-            veg.Shape = Enum.PartType.Cylinder
-            veg.Size = Vector3.new(8 * scale, 3 * scale, 3 * scale)
-            veg.Material = Enum.Material.Wood
-            veg.Color = Color3.fromRGB(139, 90, 43)
-            veg.Orientation = Vector3.new(0, 0, 90)
-        elseif string.find(vegetationType, "Rock") then
-            veg.Shape = Enum.PartType.Ball
-            veg.Size = Vector3.new(4 * scale, 3 * scale, 4 * scale)
-            veg.Material = Enum.Material.Slate
-            veg.Color = Color3.fromRGB(128, 128, 128)
+        local veg = nil
+
+        -- Use tree packs for tree types if biome specified
+        if string.find(vegetationType, "Tree") and biome then
+            veg = self:SpawnTreeFromPack(biome, pos, scale)
         else
-            veg.Shape = Enum.PartType.Block
-            veg.Size = Vector3.new(2 * scale, 1 * scale, 2 * scale)
-            veg.Material = Enum.Material.Grass
-            veg.Color = Color3.fromRGB(76, 153, 0)
+            -- Get actual terrain height at this position
+            local groundY = GetTerrainHeight(worldX, worldZ)
+
+            -- Create placeholder vegetation
+            veg = Instance.new("Part")
+            veg.Name = vegetationType .. "_" .. i
+            veg.Anchored = true
+            veg.CanCollide = false
+            veg.CastShadow = true
+
+            -- Different shapes based on type
+            if string.find(vegetationType, "Tree") then
+                veg.Shape = Enum.PartType.Cylinder
+                veg.Size = Vector3.new(8 * scale, 3 * scale, 3 * scale)
+                veg.Material = Enum.Material.Wood
+                veg.Color = Color3.fromRGB(139, 90, 43)
+                veg.Orientation = Vector3.new(0, 0, 90)
+            elseif string.find(vegetationType, "Rock") then
+                veg.Shape = Enum.PartType.Ball
+                veg.Size = Vector3.new(4 * scale, 3 * scale, 4 * scale)
+                veg.Material = Enum.Material.Slate
+                veg.Color = Color3.fromRGB(128, 128, 128)
+            else
+                veg.Shape = Enum.PartType.Block
+                veg.Size = Vector3.new(2 * scale, 1 * scale, 2 * scale)
+                veg.Material = Enum.Material.Grass
+                veg.Color = Color3.fromRGB(76, 153, 0)
+            end
+
+            -- Position vegetation on terrain
+            veg.Position = Vector3.new(worldX, groundY + veg.Size.Y / 2, worldZ)
+            veg.Parent = folders.vegetation
+
+            table.insert(spawnedInstances, veg)
         end
 
-        veg.Position = position + Vector3.new(0, veg.Size.Y / 2, 0)
-        veg.Parent = folders.vegetation
-
-        table.insert(vegetation, veg)
-        table.insert(spawnedInstances, veg)
+        if veg then
+            table.insert(vegetation, veg)
+        end
     end
 
-    framework.Log("Debug", "Spawned %d %s decorations", #vegetation, vegetationType)
+    framework.Log("Debug", "Spawned %d %s decorations (grounded)", #vegetation, vegetationType)
     return vegetation
 end
 
@@ -342,6 +678,9 @@ function MapAssets:SpawnDinoModel(dinoType, position)
         return nil
     end
 
+    -- Get actual terrain height at this position
+    local groundY = GetTerrainHeight(position.X, position.Z)
+
     -- Try to load actual model if asset ID exists
     local dino = nil
     if config.assetId then
@@ -359,7 +698,8 @@ function MapAssets:SpawnDinoModel(dinoType, position)
         local body = Instance.new("Part")
         body.Name = "Body"
         body.Size = Vector3.new(6, 4, 10)
-        body.Position = position + Vector3.new(0, 2, 0)
+        -- Position dinosaur on terrain
+        body.Position = Vector3.new(position.X, groundY + 2, position.Z)
         body.Anchored = true
         body.Material = Enum.Material.SmoothPlastic
         body.Color = Color3.fromRGB(0, 100, 0)  -- Green for placeholder
@@ -367,16 +707,16 @@ function MapAssets:SpawnDinoModel(dinoType, position)
 
         dino.PrimaryPart = body
     else
-        -- Position the loaded model
+        -- Position the loaded model on terrain
         if dino.PrimaryPart then
-            dino:SetPrimaryPartCFrame(CFrame.new(position))
+            dino:SetPrimaryPartCFrame(CFrame.new(position.X, groundY, position.Z))
         end
     end
 
     dino.Parent = folders.dinosaurs
     table.insert(spawnedInstances, dino)
 
-    framework.Log("Debug", "Spawned dinosaur '%s' at %s", dinoType, tostring(position))
+    framework.Log("Debug", "Spawned dinosaur '%s' at %s (ground Y: %.1f)", dinoType, tostring(position), groundY)
     return dino
 end
 
@@ -455,6 +795,308 @@ function MapAssets:ClearCache()
     end
     assetCache = {}
     framework.Log("Debug", "Asset cache cleared")
+end
+
+--=============================================================================
+-- VFX AND PARTICLE EFFECTS
+--=============================================================================
+
+--[[
+    Get VFX configuration by name
+    @param effectName string - Name of effect from AssetManifest.VFX
+    @return table|nil - VFX configuration
+]]
+function MapAssets:GetVFXConfig(effectName)
+    return AssetManifest.VFX and AssetManifest.VFX[effectName]
+end
+
+--[[
+    Create a muzzle flash effect
+    @param attachment Attachment - The attachment to emit from
+    @return ParticleEmitter - The created emitter
+]]
+function MapAssets:CreateMuzzleFlash(attachment)
+    local config = AssetManifest.VFX and AssetManifest.VFX.MuzzleFlash
+    if not config then
+        config = {
+            color = Color3.fromRGB(255, 200, 50),
+            lifetime = 0.05,
+        }
+    end
+
+    local emitter = Instance.new("ParticleEmitter")
+    emitter.Name = "MuzzleFlash"
+    emitter.Color = ColorSequence.new(config.color)
+    emitter.LightEmission = 1
+    emitter.LightInfluence = 0
+    emitter.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.5),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    emitter.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    emitter.Lifetime = NumberRange.new(config.lifetime or 0.05)
+    emitter.Rate = 0
+    emitter.Speed = NumberRange.new(0)
+    emitter.SpreadAngle = Vector2.new(180, 180)
+    emitter.Parent = attachment
+
+    return emitter
+end
+
+--[[
+    Create a bullet impact effect
+    @param position Vector3 - Position of impact
+    @param normal Vector3 - Surface normal at impact
+    @return Part - Container part with particle effects
+]]
+function MapAssets:CreateBulletImpact(position, normal)
+    local config = AssetManifest.VFX and AssetManifest.VFX.BulletImpact
+    if not config then
+        config = {
+            color = Color3.fromRGB(255, 200, 100),
+            sparkCount = 8,
+            spread = 180,
+        }
+    end
+
+    local impactPart = Instance.new("Part")
+    impactPart.Name = "BulletImpact"
+    impactPart.Size = Vector3.new(0.1, 0.1, 0.1)
+    impactPart.Transparency = 1
+    impactPart.Anchored = true
+    impactPart.CanCollide = false
+    impactPart.Position = position
+    impactPart.CFrame = CFrame.lookAt(position, position + normal)
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = impactPart
+
+    local sparks = Instance.new("ParticleEmitter")
+    sparks.Name = "Sparks"
+    sparks.Color = ColorSequence.new(config.color)
+    sparks.LightEmission = 0.8
+    sparks.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.15),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    sparks.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    sparks.Lifetime = NumberRange.new(0.1, 0.2)
+    sparks.Rate = 0
+    sparks.Speed = NumberRange.new(5, 15)
+    sparks.SpreadAngle = Vector2.new(config.spread or 180, config.spread or 180)
+    sparks.Parent = attachment
+
+    impactPart.Parent = Workspace
+    sparks:Emit(config.sparkCount or 8)
+
+    -- Auto cleanup
+    game:GetService("Debris"):AddItem(impactPart, 0.5)
+
+    return impactPart
+end
+
+--[[
+    Create an explosion effect using the realistic flipbook explosions if available
+    @param position Vector3 - Position of explosion
+    @param scale number - Scale of explosion (optional, default 1)
+    @return Part|nil - Explosion container or nil
+]]
+function MapAssets:CreateExplosion(position, scale)
+    scale = scale or 1
+
+    -- Try to load realistic explosion from VFX manifest
+    local explosionConfig = AssetManifest.VFX and AssetManifest.VFX.RealisticExplosions
+    if explosionConfig and explosionConfig.assetId then
+        local loaded = self:LoadAsset(explosionConfig.assetId)
+        if loaded then
+            local explosion = loaded:GetChildren()[1]
+            if explosion then
+                explosion = explosion:Clone()
+                loaded:Destroy()
+
+                if explosion:IsA("Model") and explosion.PrimaryPart then
+                    explosion:SetPrimaryPartCFrame(CFrame.new(position))
+                elseif explosion:IsA("BasePart") then
+                    explosion.Position = position
+                end
+
+                explosion.Parent = Workspace
+                game:GetService("Debris"):AddItem(explosion, 3)
+
+                framework.Log("Debug", "Created realistic explosion at %s", tostring(position))
+                return explosion
+            end
+            loaded:Destroy()
+        end
+    end
+
+    -- Fallback to basic explosion
+    local explosionPart = Instance.new("Part")
+    explosionPart.Name = "Explosion"
+    explosionPart.Size = Vector3.new(0.1, 0.1, 0.1)
+    explosionPart.Transparency = 1
+    explosionPart.Anchored = true
+    explosionPart.CanCollide = false
+    explosionPart.Position = position
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = explosionPart
+
+    -- Fire/smoke effect
+    local fire = Instance.new("ParticleEmitter")
+    fire.Name = "FireBall"
+    fire.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 50)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 100, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 50, 0)),
+    })
+    fire.LightEmission = 1
+    fire.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 2 * scale),
+        NumberSequenceKeypoint.new(0.3, 5 * scale),
+        NumberSequenceKeypoint.new(1, 8 * scale),
+    })
+    fire.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(0.5, 0.3),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    fire.Lifetime = NumberRange.new(0.5, 1)
+    fire.Rate = 0
+    fire.Speed = NumberRange.new(10 * scale, 20 * scale)
+    fire.SpreadAngle = Vector2.new(360, 360)
+    fire.Parent = attachment
+
+    explosionPart.Parent = Workspace
+    fire:Emit(20)
+
+    game:GetService("Debris"):AddItem(explosionPart, 2)
+
+    return explosionPart
+end
+
+--[[
+    Get loot glow color by rarity
+    @param rarity string - Rarity level (common, uncommon, rare, epic, legendary)
+    @return Color3 - The glow color
+]]
+function MapAssets:GetLootGlowColor(rarity)
+    local glowConfig = AssetManifest.VFX and AssetManifest.VFX.LootGlow
+    if glowConfig and glowConfig[rarity] then
+        return glowConfig[rarity]
+    end
+
+    -- Fallback colors
+    local fallbackColors = {
+        common = Color3.fromRGB(180, 180, 180),
+        uncommon = Color3.fromRGB(50, 200, 50),
+        rare = Color3.fromRGB(50, 100, 255),
+        epic = Color3.fromRGB(150, 50, 200),
+        legendary = Color3.fromRGB(255, 180, 0),
+    }
+
+    return fallbackColors[rarity] or fallbackColors.common
+end
+
+--=============================================================================
+-- ASSET PRELOADING
+--=============================================================================
+
+--[[
+    Preload all critical assets for the game
+    Call this during initialization to reduce runtime loading
+]]
+function MapAssets:PreloadCriticalAssets()
+    framework.Log("Info", "Preloading critical game assets...")
+
+    local assetsToPreload = {}
+
+    -- Weapon packs
+    if AssetManifest.Weapons then
+        if AssetManifest.Weapons.FPSGunPack and AssetManifest.Weapons.FPSGunPack.assetId then
+            table.insert(assetsToPreload, AssetManifest.Weapons.FPSGunPack.assetId)
+        end
+    end
+
+    -- Dinosaur packs
+    if AssetManifest.Dinosaurs then
+        if AssetManifest.Dinosaurs.RiggedPack and AssetManifest.Dinosaurs.RiggedPack.assetId then
+            table.insert(assetsToPreload, AssetManifest.Dinosaurs.RiggedPack.assetId)
+        end
+        if AssetManifest.Dinosaurs.JPOGPack and AssetManifest.Dinosaurs.JPOGPack.assetId then
+            table.insert(assetsToPreload, AssetManifest.Dinosaurs.JPOGPack.assetId)
+        end
+    end
+
+    -- Asset packs
+    if AssetManifest.AssetPacks then
+        if AssetManifest.AssetPacks.LowPolyUltimate and AssetManifest.AssetPacks.LowPolyUltimate.assetId then
+            table.insert(assetsToPreload, AssetManifest.AssetPacks.LowPolyUltimate.assetId)
+        end
+    end
+
+    -- VFX
+    if AssetManifest.VFX then
+        if AssetManifest.VFX.RealisticExplosions and AssetManifest.VFX.RealisticExplosions.assetId then
+            table.insert(assetsToPreload, AssetManifest.VFX.RealisticExplosions.assetId)
+        end
+    end
+
+    -- Preload all gathered assets
+    self:PreloadAssets(assetsToPreload)
+
+    framework.Log("Info", "Critical asset preloading complete (%d assets)", #assetsToPreload)
+end
+
+--[[
+    Preload tree packs for a specific biome
+    @param biome string - Biome name
+]]
+function MapAssets:PreloadBiomeAssets(biome)
+    if not AssetManifest.TreePacks then return end
+
+    local toPreload = {}
+
+    for packName, packConfig in pairs(AssetManifest.TreePacks) do
+        if packConfig.biomes and packConfig.assetId then
+            for _, b in ipairs(packConfig.biomes) do
+                if b == biome then
+                    table.insert(toPreload, packConfig.assetId)
+                    break
+                end
+            end
+        end
+    end
+
+    if #toPreload > 0 then
+        framework.Log("Info", "Preloading %d tree packs for biome '%s'", #toPreload, biome)
+        self:PreloadAssets(toPreload)
+    end
+end
+
+--[[
+    Preload LowPoly building assets
+]]
+function MapAssets:PreloadBuildings()
+    if not AssetManifest.LowPolyBuildings then return end
+
+    local toPreload = {}
+    for buildingKey, config in pairs(AssetManifest.LowPolyBuildings) do
+        if config.assetId then
+            table.insert(toPreload, config.assetId)
+        end
+    end
+
+    if #toPreload > 0 then
+        framework.Log("Info", "Preloading %d building assets", #toPreload)
+        self:PreloadAssets(toPreload)
+    end
 end
 
 --=============================================================================

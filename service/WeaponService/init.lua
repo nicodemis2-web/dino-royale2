@@ -66,6 +66,7 @@ local activeTraps = {}        -- Currently placed traps
 local activeProjectiles = {}  -- In-flight projectiles (grenades, rockets)
 local framework = nil         -- Framework reference
 local gameConfig = nil        -- Game configuration reference
+local objectPool = nil        -- Object pooling for projectiles/effects
 
 --==============================================================================
 -- CONSTANTS
@@ -755,6 +756,10 @@ function WeaponService:Initialize()
     framework = require(script.Parent.Parent.Framework)
     gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
+    -- Initialize object pooling for projectiles and effects
+    local ObjectPool = require(script.Parent.Parent.Module.ObjectPool)
+    objectPool = ObjectPool:Initialize()
+
     self:LoadWeaponConfigs()
     self:LoadAttachmentConfigs()
     self:SetupRemotes()
@@ -1132,6 +1137,55 @@ end
     @param data table - Fire data
 ]]
 function WeaponService:HandleWeaponFire(player, data)
+    -- SECURITY: Validate input data type
+    if type(data) ~= "table" then
+        framework.Log("Warn", "WeaponFire: Invalid data type from %s", player.Name)
+        return
+    end
+
+    -- SECURITY: Validate origin and direction exist and are Vector3
+    if not data.origin or not data.direction then
+        framework.Log("Warn", "WeaponFire: Missing origin/direction from %s", player.Name)
+        return
+    end
+
+    -- SECURITY: Validate Vector3 values are not NaN or Infinite
+    local function isValidVector3(v)
+        if typeof(v) ~= "Vector3" then return false end
+        if v.X ~= v.X or v.Y ~= v.Y or v.Z ~= v.Z then return false end -- NaN check
+        if math.abs(v.X) == math.huge or math.abs(v.Y) == math.huge or math.abs(v.Z) == math.huge then return false end
+        return true
+    end
+
+    if not isValidVector3(data.origin) or not isValidVector3(data.direction) then
+        framework.Log("Warn", "WeaponFire: Invalid Vector3 from %s (NaN/Inf)", player.Name)
+        return
+    end
+
+    -- SECURITY: Validate direction is not zero vector
+    if data.direction.Magnitude < 0.001 then
+        framework.Log("Warn", "WeaponFire: Zero direction from %s", player.Name)
+        return
+    end
+
+    -- SECURITY: Validate origin is near player's actual position (anti-wallhack)
+    local character = player.Character
+    if not character then return end
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+
+    -- SECURITY: Validate origin is near player's actual position (anti-wallhack)
+    -- Origin comes from camera position which can be 20-30 studs from character
+    -- when player is in third person or zoomed out. Allow generous distance for
+    -- legitimate play but catch extreme exploits (e.g., shooting from across map)
+    local MAX_ORIGIN_DISTANCE = 50 -- Max studs from player position (accounts for camera offset)
+    local distanceFromPlayer = (data.origin - rootPart.Position).Magnitude
+    if distanceFromPlayer > MAX_ORIGIN_DISTANCE then
+        framework.Log("Warn", "WeaponFire: Suspicious origin from %s (%.1f studs away) - BLOCKED", player.Name, distanceFromPlayer)
+        -- Block the shot entirely for extreme distances (likely exploit)
+        return
+    end
+
     framework.Log("Info", "WeaponFire received from %s", player.Name)
 
     local inventory = playerWeapons[player.UserId]
@@ -1199,6 +1253,7 @@ function WeaponService:HandleWeaponFire(player, data)
                 remotes.WeaponFire:FireClient(otherPlayer, {
                     shooterId = player.UserId,
                     weaponType = weapon.type,
+                    weaponCategory = weapon.category,  -- Include category for weapon-specific sounds
                     origin = data.origin,
                     direction = data.direction,
                 })
@@ -1304,20 +1359,31 @@ end
 function WeaponService:FireProjectile(player, weapon, data)
     local config = weapon.config
 
-    local projectile = Instance.new("Part")
+    -- Use object pool for projectile (better performance)
+    local projectile = objectPool and objectPool:Acquire("Projectile")
+    local isPooled = projectile ~= nil
+
+    if not projectile then
+        -- Fallback to creating new instance if pool unavailable
+        projectile = Instance.new("Part")
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Name = "Velocity"
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Parent = projectile
+    end
+
     projectile.Name = "Projectile_" .. weapon.type
     projectile.Size = Vector3.new(1, 1, 2)
-    projectile.Position = data.origin
     projectile.CFrame = CFrame.new(data.origin, data.origin + data.direction)
     projectile.Anchored = false
     projectile.CanCollide = true
     projectile.Color = Color3.fromRGB(100, 100, 100)
     projectile.Material = Enum.Material.Metal
 
-    local bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Velocity = data.direction.Unit * config.projectileSpeed
-    bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bodyVelocity.Parent = projectile
+    local bodyVelocity = projectile:FindFirstChild("Velocity")
+    if bodyVelocity then
+        bodyVelocity.Velocity = data.direction.Unit * config.projectileSpeed
+    end
 
     projectile.Parent = workspace
 
@@ -1327,6 +1393,7 @@ function WeaponService:FireProjectile(player, weapon, data)
         weapon = weapon,
         part = projectile,
         startTime = tick(),
+        isPooled = isPooled,
     }
     activeProjectiles[projectileData.id] = projectileData
 
@@ -1337,13 +1404,35 @@ function WeaponService:FireProjectile(player, weapon, data)
 
     if config.fuseTime then
         task.delay(config.fuseTime, function()
-            if projectile.Parent then
+            if projectile.Parent and projectile.Parent ~= workspace:FindFirstChild("_ObjectPoolStorage") then
                 self:ExplodeProjectile(projectileData, projectile.Position)
             end
         end)
     end
 
-    Debris:AddItem(projectile, 10)
+    -- Auto-cleanup after 10 seconds if not exploded
+    task.delay(10, function()
+        if activeProjectiles[projectileData.id] then
+            self:CleanupProjectile(projectileData)
+        end
+    end)
+end
+
+--[[
+    Cleanup a projectile (return to pool or destroy)
+    @param projectileData table
+]]
+function WeaponService:CleanupProjectile(projectileData)
+    activeProjectiles[projectileData.id] = nil
+    local part = projectileData.part
+
+    if part and part.Parent then
+        if projectileData.isPooled and objectPool then
+            objectPool:Release("Projectile", part)
+        else
+            part:Destroy()
+        end
+    end
 end
 
 --[[
@@ -1416,9 +1505,8 @@ function WeaponService:ExplodeProjectile(projectileData, position)
         end
     end
 
-    if projectileData.part then
-        projectileData.part:Destroy()
-    end
+    -- Return projectile to pool or destroy
+    self:CleanupProjectile(projectileData)
 end
 
 --[[
@@ -1546,6 +1634,30 @@ end
     @param data table
 ]]
 function WeaponService:HandleMeleeSwing(player, data)
+    -- SECURITY: Input validation
+    if type(data) ~= "table" then
+        framework.Log("Warn", "MeleeSwing: Invalid data type from %s", player.Name)
+        return
+    end
+
+    -- SECURITY: Validate direction if provided
+    if data.direction then
+        if typeof(data.direction) ~= "Vector3" then
+            framework.Log("Warn", "MeleeSwing: Invalid direction type from %s", player.Name)
+            return
+        end
+        -- NaN check
+        if data.direction.X ~= data.direction.X or data.direction.Y ~= data.direction.Y or data.direction.Z ~= data.direction.Z then
+            framework.Log("Warn", "MeleeSwing: NaN direction from %s", player.Name)
+            return
+        end
+        -- Infinity check
+        if math.abs(data.direction.X) == math.huge or math.abs(data.direction.Y) == math.huge or math.abs(data.direction.Z) == math.huge then
+            framework.Log("Warn", "MeleeSwing: Infinite direction from %s", player.Name)
+            return
+        end
+    end
+
     local inventory = playerWeapons[player.UserId]
     if not inventory then return end
 
@@ -1578,7 +1690,8 @@ function WeaponService:HandleMeleeSwing(player, data)
     if not rootPart then return end
 
     local meleeOrigin = rootPart.Position
-    local meleeDirection = data.direction or rootPart.CFrame.LookVector
+    -- SECURITY: Use validated direction or fallback to look vector
+    local meleeDirection = (data.direction and data.direction.Magnitude > 0.001) and data.direction.Unit or rootPart.CFrame.LookVector
     local meleeRange = config.range or 5
     local attackAngle = config.attackAngle or 90
 
@@ -1729,8 +1842,30 @@ end
     @param data table
 ]]
 function WeaponService:HandleThrowProjectile(player, data)
+    -- SECURITY: Input validation
+    if type(data) ~= "table" then return end
+    if type(data.throwableType) ~= "string" then return end
+
+    -- SECURITY: Rate limiting for throwables (max 1 per second)
     local inventory = playerWeapons[player.UserId]
     if not inventory then return end
+
+    local now = tick()
+    inventory.lastThrowTime = inventory.lastThrowTime or 0
+    local THROW_COOLDOWN = 1.0 -- 1 second between throws
+
+    if (now - inventory.lastThrowTime) < THROW_COOLDOWN then
+        framework.Log("Debug", "ThrowProjectile: Rate limited for %s", player.Name)
+        return
+    end
+    inventory.lastThrowTime = now
+
+    -- SECURITY: Validate direction if provided
+    if data.direction then
+        if typeof(data.direction) ~= "Vector3" then return end
+        if data.direction.X ~= data.direction.X then return end -- NaN check
+        if data.direction.Magnitude < 0.001 then return end
+    end
 
     local throwableStack = nil
     local stackIndex = nil
@@ -1767,15 +1902,23 @@ function WeaponService:HandleThrowProjectile(player, data)
         return
     end
 
-    local projectile = Instance.new("Part")
+    -- Use object pool for throwable (better performance)
+    local projectile = objectPool and objectPool:Acquire("Throwable")
+    local isPooled = projectile ~= nil
+
+    if not projectile then
+        -- Fallback to creating new instance if pool unavailable
+        projectile = Instance.new("Part")
+        projectile.Shape = Enum.PartType.Ball
+    end
+
     projectile.Name = "Throwable_" .. data.throwableType
     projectile.Size = Vector3.new(1, 1, 1)
-    projectile.Shape = Enum.PartType.Ball
-    projectile.Position = origin
+    projectile.CFrame = CFrame.new(origin)
     projectile.Anchored = false
     projectile.CanCollide = true
     projectile.Color = Color3.fromRGB(50, 80, 50)
-    projectile.Velocity = direction * throwPower + Vector3.new(0, throwPower * 0.3, 0)
+    projectile.AssemblyLinearVelocity = direction * throwPower + Vector3.new(0, throwPower * 0.3, 0)
     projectile.Parent = workspace
 
     local projectileData = {
@@ -1784,6 +1927,7 @@ function WeaponService:HandleThrowProjectile(player, data)
         type = data.throwableType,
         config = config,
         part = projectile,
+        isPooled = isPooled,
     }
 
     if config.fuseTime and config.fuseTime > 0 then
@@ -1791,7 +1935,7 @@ function WeaponService:HandleThrowProjectile(player, data)
         remainingFuse = math.max(0.1, remainingFuse)
 
         task.delay(remainingFuse, function()
-            if projectile.Parent then
+            if projectile.Parent and projectile.Parent ~= workspace:FindFirstChild("_ObjectPoolStorage") then
                 self:ExplodeThrowable(projectileData, projectile.Position)
             end
         end)
@@ -1802,8 +1946,30 @@ function WeaponService:HandleThrowProjectile(player, data)
         end)
     end
 
-    Debris:AddItem(projectile, 15)
+    -- Auto-cleanup after 15 seconds
+    task.delay(15, function()
+        if projectileData.part and projectileData.part.Parent and projectileData.part.Parent ~= workspace:FindFirstChild("_ObjectPoolStorage") then
+            self:CleanupThrowable(projectileData)
+        end
+    end)
+
     self:BroadcastInventoryUpdate(player)
+end
+
+--[[
+    Cleanup a throwable (return to pool or destroy)
+    @param throwableData table
+]]
+function WeaponService:CleanupThrowable(throwableData)
+    local part = throwableData.part
+
+    if part and part.Parent then
+        if throwableData.isPooled and objectPool then
+            objectPool:Release("Throwable", part)
+        else
+            part:Destroy()
+        end
+    end
 end
 
 --[[
@@ -1815,9 +1981,8 @@ function WeaponService:ExplodeThrowable(throwableData, position)
     local config = throwableData.config
     local owner = throwableData.owner
 
-    if throwableData.part then
-        throwableData.part:Destroy()
-    end
+    -- Return throwable to pool or destroy
+    self:CleanupThrowable(throwableData)
 
     if config.effect == "smoke" then
         self:CreateSmokeCloud(position, config)
@@ -2043,8 +2208,42 @@ end
     @param data table
 ]]
 function WeaponService:HandlePlaceTrap(player, data)
+    -- SECURITY: Input validation
+    if type(data) ~= "table" then return end
+    if type(data.trapType) ~= "string" then return end
+
     local inventory = playerWeapons[player.UserId]
     if not inventory then return end
+
+    -- SECURITY: Rate limiting for trap placement (max 1 per 2 seconds)
+    local now = tick()
+    inventory.lastTrapTime = inventory.lastTrapTime or 0
+    local TRAP_COOLDOWN = 2.0 -- 2 seconds between trap placements
+
+    if (now - inventory.lastTrapTime) < TRAP_COOLDOWN then
+        framework.Log("Debug", "PlaceTrap: Rate limited for %s", player.Name)
+        return
+    end
+    inventory.lastTrapTime = now
+
+    -- SECURITY: Validate position is near player
+    if data.position then
+        if typeof(data.position) ~= "Vector3" then return end
+        if data.position.X ~= data.position.X then return end -- NaN check
+
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                local MAX_TRAP_DISTANCE = 15 -- Max studs from player to place trap
+                local distance = (data.position - rootPart.Position).Magnitude
+                if distance > MAX_TRAP_DISTANCE then
+                    framework.Log("Warn", "PlaceTrap: Position too far from %s (%.1f studs)", player.Name, distance)
+                    return
+                end
+            end
+        end
+    end
 
     local trapStack = nil
     local stackIndex = nil

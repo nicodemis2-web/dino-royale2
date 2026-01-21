@@ -94,7 +94,9 @@ function DinoHUD:CreateCrosshair()
     local crosshairContainer = Instance.new("Frame")
     crosshairContainer.Name = "Crosshair"
     crosshairContainer.Size = UDim2.new(0, 50, 0, 50)
-    crosshairContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+    -- Offset crosshair upward from center to avoid overlapping character in third-person view
+    -- Standard offset is ~10% above center (0.5 - 0.1 = 0.4) or about 50-80 pixels
+    crosshairContainer.Position = UDim2.new(0.5, 0, 0.4, 0)
     crosshairContainer.AnchorPoint = Vector2.new(0.5, 0.5)
     crosshairContainer.BackgroundTransparency = 1
     crosshairContainer.Active = false  -- Don't block mouse input
@@ -181,10 +183,11 @@ function DinoHUD:CreateCrosshair()
 end
 
 --[[
-    Show hit marker on crosshair (visual feedback when hitting target)
+    Flash crosshair lines for visual feedback
+    This is called when ShowHitMarker is invoked to also flash the crosshair
     @param isHeadshot boolean - Whether the hit was a headshot (shows different color)
 ]]
-function DinoHUD:ShowHitMarker(isHeadshot)
+local function flashCrosshairLines(isHeadshot)
     if not components.crosshair then return end
 
     local color = isHeadshot and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 255, 255)
@@ -196,14 +199,16 @@ function DinoHUD:ShowHitMarker(isHeadshot)
         components.crosshair.leftLine,
         components.crosshair.rightLine
     }) do
-        line.BackgroundColor3 = color
+        if line then
+            line.BackgroundColor3 = color
 
-        -- Animate back to white
-        task.delay(0.1, function()
-            if line and line.Parent then
-                line.BackgroundColor3 = Color3.new(1, 1, 1)
-            end
-        end)
+            -- Animate back to white
+            task.delay(0.1, function()
+                if line and line.Parent then
+                    line.BackgroundColor3 = Color3.new(1, 1, 1)
+                end
+            end)
+        end
     end
 end
 
@@ -781,6 +786,32 @@ function DinoHUD:SelectWeaponSlot(slotIndex)
             slot.stroke.Thickness = 2
         end
     end
+end
+
+--[[
+    Flash weapon slot to provide visual feedback when equipping
+    @param slotIndex number - Slot index to flash (1-5)
+]]
+function DinoHUD:FlashWeaponSlot(slotIndex)
+    local slot = components.weaponSlots[slotIndex]
+    if not slot or not slot.frame then return end
+
+    -- Store original background color
+    local originalColor = slot.frame.BackgroundColor3
+    local originalTransparency = slot.frame.BackgroundTransparency
+
+    -- Flash white briefly
+    slot.frame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    slot.frame.BackgroundTransparency = 0.2
+
+    -- Animate back to original
+    task.spawn(function()
+        task.wait(0.1)
+        if slot.frame and slot.frame.Parent then
+            slot.frame.BackgroundColor3 = originalColor
+            slot.frame.BackgroundTransparency = originalTransparency
+        end
+    end)
 end
 
 --[[
@@ -2039,27 +2070,91 @@ end
 
 --[[
     Show hit marker on crosshair when dealing damage
+    Creates an X-shaped hit marker using Frame elements
     @param isHeadshot boolean - Whether the hit was a headshot (shows different marker)
 ]]
 function DinoHUD:ShowHitMarker(isHeadshot)
     -- Hit markers provide instant feedback when shots connect
-    -- Headshots show a different color/style marker
+    -- Headshots show yellow/gold color, normal hits show white
     if not screenGui then return end
 
-    local marker = Instance.new("ImageLabel")
-    marker.Name = "HitMarker"
-    marker.Size = UDim2.new(0, 40, 0, 40)
-    marker.Position = UDim2.new(0.5, -20, 0.5, -20)
-    marker.BackgroundTransparency = 1
-    marker.Image = "rbxassetid://0"  -- Placeholder - would use actual hit marker image
-    marker.ImageColor3 = isHeadshot and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(255, 255, 255)
-    marker.Parent = screenGui
+    -- Also flash crosshair lines for additional feedback
+    flashCrosshairLines(isHeadshot)
 
-    -- Fade out and destroy after short duration
+    local markerColor = isHeadshot and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(255, 255, 255)
+    local markerSize = isHeadshot and 36 or 30
+
+    -- Create container for the X-shaped marker
+    local markerContainer = Instance.new("Frame")
+    markerContainer.Name = "HitMarker"
+    markerContainer.Size = UDim2.new(0, markerSize, 0, markerSize)
+    markerContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
+    markerContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+    markerContainer.BackgroundTransparency = 1
+    markerContainer.Parent = screenGui
+
+    -- Create the four lines that form the X shape (like crosshair gaps)
+    local lineThickness = isHeadshot and 3 or 2
+    local lineLength = markerSize * 0.4
+    local gapFromCenter = 4  -- Gap in the center
+
+    -- Top-left line (angled)
+    local line1 = Instance.new("Frame")
+    line1.Size = UDim2.new(0, lineLength, 0, lineThickness)
+    line1.Position = UDim2.new(0.5, -gapFromCenter, 0.5, -gapFromCenter)
+    line1.AnchorPoint = Vector2.new(1, 0.5)
+    line1.Rotation = -45
+    line1.BackgroundColor3 = markerColor
+    line1.BorderSizePixel = 0
+    line1.Parent = markerContainer
+
+    -- Top-right line (angled)
+    local line2 = Instance.new("Frame")
+    line2.Size = UDim2.new(0, lineLength, 0, lineThickness)
+    line2.Position = UDim2.new(0.5, gapFromCenter, 0.5, -gapFromCenter)
+    line2.AnchorPoint = Vector2.new(0, 0.5)
+    line2.Rotation = 45
+    line2.BackgroundColor3 = markerColor
+    line2.BorderSizePixel = 0
+    line2.Parent = markerContainer
+
+    -- Bottom-left line (angled)
+    local line3 = Instance.new("Frame")
+    line3.Size = UDim2.new(0, lineLength, 0, lineThickness)
+    line3.Position = UDim2.new(0.5, -gapFromCenter, 0.5, gapFromCenter)
+    line3.AnchorPoint = Vector2.new(1, 0.5)
+    line3.Rotation = 45
+    line3.BackgroundColor3 = markerColor
+    line3.BorderSizePixel = 0
+    line3.Parent = markerContainer
+
+    -- Bottom-right line (angled)
+    local line4 = Instance.new("Frame")
+    line4.Size = UDim2.new(0, lineLength, 0, lineThickness)
+    line4.Position = UDim2.new(0.5, gapFromCenter, 0.5, gapFromCenter)
+    line4.AnchorPoint = Vector2.new(0, 0.5)
+    line4.Rotation = -45
+    line4.BackgroundColor3 = markerColor
+    line4.BorderSizePixel = 0
+    line4.Parent = markerContainer
+
+    -- Animate: expand slightly then fade out
     task.spawn(function()
-        task.wait(0.15)
-        if marker and marker.Parent then
-            marker:Destroy()
+        -- Brief expand animation for headshots
+        if isHeadshot then
+            for i = 1, 3 do
+                task.wait(0.02)
+                if markerContainer and markerContainer.Parent then
+                    local scale = 1 + (i * 0.05)
+                    markerContainer.Size = UDim2.new(0, markerSize * scale, 0, markerSize * scale)
+                end
+            end
+        end
+
+        -- Wait then destroy
+        task.wait(0.12)
+        if markerContainer and markerContainer.Parent then
+            markerContainer:Destroy()
         end
     end)
 end

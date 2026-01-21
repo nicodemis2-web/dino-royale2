@@ -129,6 +129,107 @@ local BOSS_PHASE_THRESHOLDS = {
 }
 
 --=============================================================================
+-- SPATIAL HASH GRID
+-- Optimizes target finding from O(n) to O(1) average case
+-- Grid divides the map into cells, each cell tracks nearby players
+--=============================================================================
+local GRID_CELL_SIZE = 50  -- studs per cell (should be >= max aggro radius)
+local spatialGrid = {}     -- [cellX][cellZ] = {[playerId] = true}
+local playerCells = {}     -- [playerId] = {x = cellX, z = cellZ}
+
+--[[
+    Get grid cell coordinates for a world position
+    @param position Vector3
+    @return number, number - cellX, cellZ
+]]
+local function getGridCell(position)
+    local cellX = math.floor(position.X / GRID_CELL_SIZE)
+    local cellZ = math.floor(position.Z / GRID_CELL_SIZE)
+    return cellX, cellZ
+end
+
+--[[
+    Update a player's position in the spatial grid
+    @param player Player
+    @param position Vector3
+]]
+local function updatePlayerInGrid(player, position)
+    local userId = player.UserId
+    local newCellX, newCellZ = getGridCell(position)
+
+    -- Check if player changed cells
+    local oldCell = playerCells[userId]
+    if oldCell and oldCell.x == newCellX and oldCell.z == newCellZ then
+        return -- Same cell, no update needed
+    end
+
+    -- Remove from old cell
+    if oldCell then
+        local oldGrid = spatialGrid[oldCell.x]
+        if oldGrid and oldGrid[oldCell.z] then
+            oldGrid[oldCell.z][userId] = nil
+        end
+    end
+
+    -- Add to new cell
+    if not spatialGrid[newCellX] then
+        spatialGrid[newCellX] = {}
+    end
+    if not spatialGrid[newCellX][newCellZ] then
+        spatialGrid[newCellX][newCellZ] = {}
+    end
+    spatialGrid[newCellX][newCellZ][userId] = true
+
+    -- Update player's cell reference
+    playerCells[userId] = {x = newCellX, z = newCellZ}
+end
+
+--[[
+    Remove a player from the spatial grid
+    @param player Player
+]]
+local function removePlayerFromGrid(player)
+    local userId = player.UserId
+    local cell = playerCells[userId]
+    if cell then
+        local grid = spatialGrid[cell.x]
+        if grid and grid[cell.z] then
+            grid[cell.z][userId] = nil
+        end
+    end
+    playerCells[userId] = nil
+end
+
+--[[
+    Get all player IDs in nearby cells
+    @param position Vector3
+    @param radius number - Search radius in studs
+    @return table - Array of player UserIds
+]]
+local function getPlayersInRadius(position, radius)
+    local cellX, cellZ = getGridCell(position)
+    local cellRadius = math.ceil(radius / GRID_CELL_SIZE)
+
+    local nearbyPlayers = {}
+
+    for dx = -cellRadius, cellRadius do
+        for dz = -cellRadius, cellRadius do
+            local grid = spatialGrid[cellX + dx]
+            if grid then
+                local cell = grid[cellZ + dz]
+                if cell then
+                    for userId, _ in pairs(cell) do
+                        table.insert(nearbyPlayers, userId)
+                    end
+                end
+            end
+        end
+    end
+
+    return nearbyPlayers
+end
+
+--=============================================================================
 -- DINOSAUR DEFINITIONS
 -- Comprehensive stats and abilities for each dinosaur type
 --=============================================================================
@@ -137,6 +238,8 @@ local DINOSAUR_DEFINITIONS = {
     --=========================================================================
     -- RAPTOR - Pack Hunter
     -- Fast, agile pack hunters that coordinate flanking attacks
+    -- Real size: 1.5-2m long, 0.5m hip height, turkey-sized
+    -- Game scale: Slightly larger for visibility (~2m tall at hip for gameplay)
     --=========================================================================
     raptor = {
         name = "Velociraptor",
@@ -153,9 +256,13 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 40,
         packSize = {min = 2, max = 4},
 
-        -- Visual settings
-        modelSize = Vector3.new(2, 3, 5),
-        color = Color3.fromRGB(50, 80, 50),
+        -- Visual settings (realistic proportions, scaled for gameplay)
+        -- Body: Width x Height x Length in studs (1 stud ≈ 0.28m)
+        modelSize = Vector3.new(1.5, 2, 4),  -- Sleek, low predator
+        color = Color3.fromRGB(85, 95, 65),  -- Olive green-brown
+        secondaryColor = Color3.fromRGB(120, 110, 85),  -- Lighter underbelly
+        stripeColor = Color3.fromRGB(45, 55, 35),  -- Dark stripes
+        materialType = "scales",  -- Scaly skin
 
         -- Behavior settings
         aggressionRadius = 80,
@@ -192,6 +299,8 @@ local DINOSAUR_DEFINITIONS = {
     --=========================================================================
     -- T-REX - Solo Predator
     -- Massive apex predator with devastating attacks
+    -- Real size: 12-13m long, 4m hip height, 6-8 tons
+    -- Game scale: Imposing presence (scaled appropriately)
     --=========================================================================
     trex = {
         name = "Tyrannosaurus Rex",
@@ -208,9 +317,12 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 10,
         packSize = {min = 1, max = 1},
 
-        -- Visual settings
-        modelSize = Vector3.new(8, 10, 20),
-        color = Color3.fromRGB(60, 40, 30),
+        -- Visual settings (massive, terrifying predator)
+        modelSize = Vector3.new(6, 12, 24),  -- Tall, powerful stance
+        color = Color3.fromRGB(75, 55, 40),  -- Dark brown
+        secondaryColor = Color3.fromRGB(95, 75, 55),  -- Lighter underbelly
+        accentColor = Color3.fromRGB(50, 35, 25),  -- Dark accent patches
+        materialType = "rough_scales",  -- Thick, rough hide
 
         -- Behavior settings
         aggressionRadius = 100,
@@ -252,6 +364,8 @@ local DINOSAUR_DEFINITIONS = {
     --=========================================================================
     -- PTERANODON - Aerial Diver
     -- Flying predator that dive-bombs targets
+    -- Real size: 6m wingspan, 1.8m body length
+    -- Game scale: Impressive wingspan for aerial presence
     --=========================================================================
     pteranodon = {
         name = "Pteranodon",
@@ -268,9 +382,12 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 25,
         packSize = {min = 1, max = 3},
 
-        -- Visual settings
-        modelSize = Vector3.new(6, 1, 3),
-        color = Color3.fromRGB(80, 60, 40),
+        -- Visual settings (wide wingspan, sleek body)
+        modelSize = Vector3.new(12, 2, 4),  -- Wide wingspan
+        color = Color3.fromRGB(110, 90, 70),  -- Tan/brown
+        secondaryColor = Color3.fromRGB(85, 70, 55),  -- Darker wing membrane
+        accentColor = Color3.fromRGB(140, 120, 95),  -- Lighter crest
+        materialType = "membrane",  -- Leathery wings
 
         -- Flight settings
         isFlying = true,
@@ -301,6 +418,8 @@ local DINOSAUR_DEFINITIONS = {
     --=========================================================================
     -- TRICERATOPS - Defensive Charger
     -- Heavily armored herbivore that charges when threatened
+    -- Real size: 8-9m long, 3m tall, 6-12 tons
+    -- Game scale: Bulky, imposing tank-like dinosaur
     --=========================================================================
     triceratops = {
         name = "Triceratops",
@@ -318,9 +437,13 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 15,
         packSize = {min = 1, max = 2},
 
-        -- Visual settings
-        modelSize = Vector3.new(6, 5, 12),
-        color = Color3.fromRGB(100, 90, 70),
+        -- Visual settings (bulky, armored herbivore)
+        modelSize = Vector3.new(5, 6, 14),  -- Wide, sturdy build
+        color = Color3.fromRGB(130, 115, 90),  -- Sandy brown
+        secondaryColor = Color3.fromRGB(160, 145, 120),  -- Lighter underbelly
+        accentColor = Color3.fromRGB(100, 85, 65),  -- Darker frill
+        hornColor = Color3.fromRGB(245, 235, 210),  -- Ivory horns
+        materialType = "armored",  -- Thick armored hide
 
         -- Behavior settings
         aggressionRadius = 40,  -- Less aggressive, needs provocation
@@ -350,6 +473,8 @@ local DINOSAUR_DEFINITIONS = {
     --=========================================================================
     -- DILOPHOSAURUS - Ranged Spitter
     -- Venomous dinosaur with ranged blind attack
+    -- Real size: 6m long, 2m tall
+    -- Game scale: Medium-sized, distinctive crests
     --=========================================================================
     dilophosaurus = {
         name = "Dilophosaurus",
@@ -366,9 +491,12 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 20,
         packSize = {min = 1, max = 2},
 
-        -- Visual settings
-        modelSize = Vector3.new(2, 4, 6),
-        color = Color3.fromRGB(40, 80, 60),
+        -- Visual settings (distinctive crests, colorful warning colors)
+        modelSize = Vector3.new(2, 4, 8),  -- Lean, agile build
+        color = Color3.fromRGB(55, 95, 75),  -- Deep teal-green
+        secondaryColor = Color3.fromRGB(80, 120, 95),  -- Lighter belly
+        accentColor = Color3.fromRGB(180, 80, 50),  -- Orange-red frill/crest
+        materialType = "smooth_scales",  -- Sleek skin
 
         -- Behavior settings
         aggressionRadius = 60,
@@ -397,8 +525,10 @@ local DINOSAUR_DEFINITIONS = {
     },
 
     --=========================================================================
-    -- CARNOTAURUS - Ambush Predator (NEW)
+    -- CARNOTAURUS - Ambush Predator
     -- Camouflaged hunter that ambushes prey
+    -- Real size: 8m long, 3m tall, distinctive horns above eyes
+    -- Game scale: Fast, muscular predator
     --=========================================================================
     carnotaurus = {
         name = "Carnotaurus",
@@ -415,9 +545,13 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 12,
         packSize = {min = 1, max = 1},
 
-        -- Visual settings
-        modelSize = Vector3.new(4, 5, 10),
-        color = Color3.fromRGB(80, 50, 40),
+        -- Visual settings (muscular build, distinctive horns)
+        modelSize = Vector3.new(3.5, 5, 12),  -- Streamlined for speed
+        color = Color3.fromRGB(95, 60, 50),  -- Reddish-brown
+        secondaryColor = Color3.fromRGB(125, 85, 70),  -- Lighter areas
+        accentColor = Color3.fromRGB(65, 40, 35),  -- Dark stripes
+        hornColor = Color3.fromRGB(60, 50, 45),  -- Dark horns
+        materialType = "rough_scales",  -- Bumpy hide
 
         -- Behavior settings
         aggressionRadius = 50,
@@ -447,8 +581,10 @@ local DINOSAUR_DEFINITIONS = {
     },
 
     --=========================================================================
-    -- COMPSOGNATHUS - Swarm (NEW)
+    -- COMPSOGNATHUS - Swarm
     -- Tiny dinosaurs that attack in overwhelming numbers
+    -- Real size: 0.6-1m long, chicken-sized
+    -- Game scale: Small but visible, swarming threat
     --=========================================================================
     compy = {
         name = "Compsognathus",
@@ -465,9 +601,12 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 18,
         packSize = {min = 5, max = 10},
 
-        -- Visual settings
-        modelSize = Vector3.new(0.5, 0.8, 1.5),
-        color = Color3.fromRGB(60, 70, 50),
+        -- Visual settings (tiny, numerous)
+        modelSize = Vector3.new(0.4, 0.6, 1.2),  -- Very small
+        color = Color3.fromRGB(75, 85, 60),  -- Greenish-brown
+        secondaryColor = Color3.fromRGB(95, 105, 75),  -- Lighter belly
+        accentColor = Color3.fromRGB(55, 65, 45),  -- Dark markings
+        materialType = "smooth_scales",  -- Fine scales
 
         -- Behavior settings
         aggressionRadius = 30,
@@ -488,8 +627,10 @@ local DINOSAUR_DEFINITIONS = {
     },
 
     --=========================================================================
-    -- SPINOSAURUS - Apex Predator (NEW)
-    -- Large semi-aquatic predator with tail attacks
+    -- SPINOSAURUS - Apex Predator
+    -- Large semi-aquatic predator with distinctive sail
+    -- Real size: 15-18m long, largest carnivorous dinosaur
+    -- Game scale: Massive, distinctive sail on back
     --=========================================================================
     spinosaurus = {
         name = "Spinosaurus",
@@ -506,9 +647,13 @@ local DINOSAUR_DEFINITIONS = {
         spawnWeight = 8,
         packSize = {min = 1, max = 1},
 
-        -- Visual settings
-        modelSize = Vector3.new(6, 8, 18),
-        color = Color3.fromRGB(70, 60, 50),
+        -- Visual settings (massive with distinctive sail)
+        modelSize = Vector3.new(5, 10, 22),  -- Long, powerful build
+        color = Color3.fromRGB(90, 80, 65),  -- Earthy brown
+        secondaryColor = Color3.fromRGB(115, 100, 80),  -- Lighter underbelly
+        sailColor = Color3.fromRGB(140, 60, 45),  -- Reddish sail
+        accentColor = Color3.fromRGB(70, 60, 50),  -- Dark stripes
+        materialType = "rough_scales",  -- Semi-aquatic hide
 
         -- Behavior settings
         aggressionRadius = 90,
@@ -734,7 +879,101 @@ local BOSS_DEFINITIONS = {
             {item = "legendary_weapon_crate", chance = 0.35, rarity = "legendary"},
         },
     },
+
+    --=========================================================================
+    -- DRAGON - The Sky Terror
+    -- Flying dragon that periodically raids the island
+    -- Flies across the map attacking players, then leaves
+    --=========================================================================
+    dragon = {
+        name = "Dragon - The Sky Terror",
+        baseDino = "pteranodon",  -- Uses pteranodon as base for flying logic
+
+        -- Stat multipliers (very powerful)
+        healthMultiplier = 5.0,     -- 500 HP
+        damageMultiplier = 3.0,     -- 45 base damage
+        speedMultiplier = 2.0,      -- Very fast
+        sizeMultiplier = 3.0,       -- Large and terrifying
+
+        -- Visual
+        color = Color3.fromRGB(20, 20, 20),    -- Dark black/gray
+        glowEnabled = true,
+        glowColor = Color3.fromRGB(255, 100, 0),  -- Fiery orange glow
+
+        -- Dragon-specific behavior
+        isDragon = true,
+        flyHeight = 80,             -- Height above terrain
+        flySpeed = 100,             -- Studs per second
+        attackDiveSpeed = 150,      -- Speed during attack dive
+        raidDuration = 60,          -- Seconds before dragon leaves
+        attackInterval = 8,         -- Seconds between attacks
+
+        -- Boss-specific abilities
+        abilities = {
+            fire_breath = {
+                enabled = true,
+                damage = 50,
+                radius = 20,
+                duration = 2,
+                cooldown = 10,
+            },
+            dive_attack = {
+                enabled = true,
+                damage = 80,
+                knockback = 50,
+                cooldown = 15,
+            },
+            terrifying_roar = {
+                enabled = true,
+                fearDuration = 3,
+                radius = 60,
+                cooldown = 20,
+            },
+        },
+
+        -- Phase behaviors (dragon doesn't have traditional phases, uses raid pattern)
+        phases = {
+            [1] = {
+                attackPattern = {"dive_attack", "fire_breath"},
+            },
+            [2] = {
+                attackPattern = {"terrifying_roar", "dive_attack", "fire_breath"},
+                aggressionBonus = 0.3,
+            },
+            [3] = {
+                attackPattern = {"terrifying_roar", "fire_breath", "dive_attack", "fire_breath"},
+                aggressionBonus = 0.5,
+            },
+        },
+
+        -- Sound IDs for dragon (scary sounds)
+        sounds = {
+            approach = "rbxassetid://9120916792",      -- Deep rumbling roar
+            roar = "rbxassetid://9120916792",          -- Terrifying roar
+            attack = "rbxassetid://9118895116",        -- Attack screech
+            wingFlap = "rbxassetid://9112854745",      -- Wing flapping
+            fireBreath = "rbxassetid://9114256606",    -- Fire sound
+        },
+
+        -- Guaranteed drops (only if killed)
+        lootTable = {
+            {item = "dragon_heart", chance = 1.0, rarity = "legendary"},
+            {item = "dragon_scale", chance = 1.0, rarity = "legendary"},
+            {item = "legendary_weapon_crate", chance = 1.0, rarity = "legendary"},
+            {item = "heavy_ammo", chance = 1.0, count = {100, 200}},
+        },
+    },
 }
+
+--=============================================================================
+-- DRAGON RAID SYSTEM
+-- Handles periodic dragon flyovers that attack players
+--=============================================================================
+
+local DRAGON_RAID_INTERVAL = 300   -- 5 minutes between dragon raids
+local activeDragon = nil           -- Currently active dragon
+local dragonRaidTimer = nil        -- Timer for next raid
+local isDragonRaidActive = false   -- Is a raid in progress
 
 --=============================================================================
 -- PRIVATE STATE
@@ -748,6 +987,23 @@ local spawnPoints = {}             -- Available spawn positions
 local framework = nil              -- Framework reference
 local gameConfig = nil             -- Game configuration
 local mapService = nil             -- MapService reference
+local networkUtils = nil           -- Network utilities for distance filtering
+
+--[[
+    Safe logging helper - handles cases where framework may not be initialized yet
+    @param level string - Log level (Debug, Info, Warn, Error)
+    @param message string - Format string
+    @param ... any - Format arguments
+]]
+local function safeLog(level, message, ...)
+    if framework and framework.Log then
+        framework.Log(level, message, ...)
+    else
+        -- Fallback to print when framework not available (e.g., during tests)
+        local formatted = string.format(message, ...)
+        print(string.format("[DinoService][%s] %s", level, formatted))
+    end
+end
 
 --=============================================================================
 -- INITIALIZATION
@@ -765,6 +1021,9 @@ function DinoService:Initialize()
     framework = require(script.Parent.Parent.Framework)
     gameConfig = require(script.Parent.Parent.Shared.GameConfig)
 
+    -- Load network utilities for distance-based broadcasting
+    networkUtils = require(script.Parent.Parent.Shared.lib.NetworkUtils)
+
     -- Try to get MapService for spawn points
     mapService = framework:GetService("MapService")
 
@@ -774,7 +1033,7 @@ function DinoService:Initialize()
     -- Setup network remotes
     self:SetupRemotes()
 
-    framework.Log("Info", "DinoService initialized with %d spawn points", #spawnPoints)
+    safeLog("Info", "DinoService initialized with %d spawn points", #spawnPoints)
     return true
 end
 
@@ -827,7 +1086,7 @@ function DinoService:LoadSpawnPoints()
         local mapSpawns = mapService:GetDinoSpawnPoints()
         if mapSpawns and #mapSpawns > 0 then
             spawnPoints = mapSpawns
-            framework.Log("Info", "Loaded %d spawn points from MapService", #spawnPoints)
+            safeLog("Info", "Loaded %d spawn points from MapService", #spawnPoints)
             return
         end
     end
@@ -849,9 +1108,11 @@ function DinoService:LoadSpawnPoints()
             local angle = (i / 16) * math.pi * 2
             local x = math.cos(angle) * radius
             local z = math.sin(angle) * radius
-            table.insert(spawnPoints, Vector3.new(x, 5, z))
+            -- Get terrain height for fallback spawn point
+            local terrainY = self:GetTerrainHeight(Vector3.new(x, 0, z))
+            table.insert(spawnPoints, Vector3.new(x, terrainY, z))
         end
-        framework.Log("Warn", "No spawn points found, generated %d defaults", #spawnPoints)
+        safeLog("Warn", "No spawn points found, generated %d defaults", #spawnPoints)
     end
 end
 
@@ -865,12 +1126,15 @@ end
 ]]
 function DinoService:StartSpawning()
     if isSpawning then
-        framework.Log("Warn", "DinoService already spawning")
+        safeLog("Warn", "DinoService already spawning")
         return
     end
 
     isSpawning = true
-    framework.Log("Info", "Starting dinosaur spawning")
+    safeLog("Info", "Starting dinosaur spawning")
+
+    -- Setup player tracking for spatial grid
+    self:SetupPlayerTracking()
 
     -- Initial spawn wave
     self:SpawnWave()
@@ -888,10 +1152,59 @@ function DinoService:StartSpawning()
     -- Start AI update loop
     task.spawn(function()
         while isSpawning do
+            -- Update player positions in spatial grid
+            self:UpdatePlayerGrid()
+            -- Then update AI
             self:UpdateAllAI()
             task.wait(AI_UPDATE_RATE)
         end
     end)
+
+    -- Start dragon raid system (dragon appears every 5 minutes)
+    self:StartDragonRaids()
+end
+
+--[[
+    Setup player tracking for spatial grid optimization
+]]
+function DinoService:SetupPlayerTracking()
+    -- Clear existing grid
+    spatialGrid = {}
+    playerCells = {}
+
+    -- Add existing players
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                updatePlayerInGrid(player, rootPart.Position)
+            end
+        end
+    end
+
+    -- Track when players leave
+    Players.PlayerRemoving:Connect(function(player)
+        removePlayerFromGrid(player)
+    end)
+
+    safeLog("Debug", "Spatial grid initialized with %d players", #Players:GetPlayers())
+end
+
+--[[
+    Update all player positions in the spatial grid
+    Called each AI tick for efficient target finding
+]]
+function DinoService:UpdatePlayerGrid()
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                updatePlayerInGrid(player, rootPart.Position)
+            end
+        end
+    end
 end
 
 --[[
@@ -899,7 +1212,650 @@ end
 ]]
 function DinoService:StopSpawning()
     isSpawning = false
-    framework.Log("Info", "Stopped dinosaur spawning")
+    self:StopDragonRaids()
+    safeLog("Info", "Stopped dinosaur spawning")
+end
+
+--=============================================================================
+-- DRAGON RAID SYSTEM FUNCTIONS
+--=============================================================================
+
+--[[
+    Start the dragon raid timer
+    Dragon will appear every 5 minutes and fly across the map
+]]
+function DinoService:StartDragonRaids()
+    if dragonRaidTimer then return end  -- Already running
+
+    safeLog("Info", "Dragon raid system started - raids every %d seconds", DRAGON_RAID_INTERVAL)
+
+    -- Start the raid timer loop
+    task.spawn(function()
+        while isSpawning do
+            task.wait(DRAGON_RAID_INTERVAL)
+            if isSpawning and not isDragonRaidActive then
+                self:StartDragonRaid()
+            end
+        end
+    end)
+
+    dragonRaidTimer = true
+end
+
+--[[
+    Stop the dragon raid timer
+]]
+function DinoService:StopDragonRaids()
+    dragonRaidTimer = nil
+    if activeDragon then
+        self:EndDragonRaid()
+    end
+end
+
+--[[
+    Start a dragon raid
+    Spawns a dragon that flies across the map attacking players
+]]
+function DinoService:StartDragonRaid()
+    if isDragonRaidActive then return end
+
+    isDragonRaidActive = true
+    safeLog("Info", "DRAGON RAID STARTING!")
+
+    -- Get map bounds for flight path
+    local mapCenter = Vector3.new(0, 0, 0)
+    local mapRadius = 500
+
+    if mapService then
+        local center = mapService:GetMapCenter()
+        local size = mapService:GetMapSize()
+        if center then mapCenter = center end
+        if size then mapRadius = math.max(size.X, size.Z) / 2 end
+    end
+
+    -- Calculate entry and exit points (random direction across map)
+    local entryAngle = math.random() * math.pi * 2
+    local exitAngle = entryAngle + math.pi  -- Opposite side
+
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    local flyHeight = dragonDef.flyHeight or 80
+
+    local entryPoint = mapCenter + Vector3.new(
+        math.cos(entryAngle) * (mapRadius + 100),
+        flyHeight,
+        math.sin(entryAngle) * (mapRadius + 100)
+    )
+
+    local exitPoint = mapCenter + Vector3.new(
+        math.cos(exitAngle) * (mapRadius + 100),
+        flyHeight,
+        math.sin(exitAngle) * (mapRadius + 100)
+    )
+
+    -- Spawn the dragon
+    activeDragon = self:SpawnDragon(entryPoint)
+
+    if not activeDragon then
+        isDragonRaidActive = false
+        return
+    end
+
+    -- Play approach warning sound to all players
+    self:PlayDragonSound("approach", mapCenter, 1000)
+
+    -- Broadcast dragon warning to all clients
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes and remotes:FindFirstChild("BossSpawned") then
+        remotes.BossSpawned:FireAllClients({
+            id = activeDragon.id,
+            type = "dragon",
+            name = dragonDef.name,
+            position = entryPoint,
+            health = activeDragon.health,
+            maxHealth = activeDragon.maxHealth,
+            phase = 1,
+            isDragon = true,
+        })
+    end
+
+    -- Start the dragon's flight path
+    self:DragonFlyPath(activeDragon, entryPoint, exitPoint, dragonDef)
+end
+
+--[[
+    Spawn a dragon entity
+
+    @param position Vector3 - Spawn position
+    @return table - Dragon data
+]]
+function DinoService:SpawnDragon(position)
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    local baseDef = DINOSAUR_DEFINITIONS.pteranodon
+
+    -- Generate unique ID
+    local dragonId = game:GetService("HttpService"):GenerateGUID(false)
+
+    -- Calculate stats
+    local health = (baseDef.health or 100) * (dragonDef.healthMultiplier or 5)
+    local damage = (baseDef.damage or 15) * (dragonDef.damageMultiplier or 3)
+    local speed = dragonDef.flySpeed or 100
+
+    -- Create dragon data
+    local dragon = {
+        id = dragonId,
+        type = "dragon",
+        name = dragonDef.name,
+        isBoss = true,
+        isDragon = true,
+
+        health = health,
+        maxHealth = health,
+        damage = damage,
+        speed = speed,
+
+        position = position,
+        state = "flying",
+        stateTime = 0,  -- Required for AI update loop
+
+        target = nil,
+        threatTable = {},
+        lastAttackTime = 0,
+        abilityCooldowns = {},
+
+        config = baseDef,
+        bossConfig = dragonDef,
+        model = nil,
+    }
+
+    -- Create dragon model
+    dragon.model = self:CreateDragonModel(dragon, position)
+
+    -- Store in active lists
+    activeDinosaurs[dragonId] = dragon
+    activeBosses[dragonId] = {
+        id = dragonId,
+        type = "dragon",
+        phase = 1,
+        spawnTime = tick(),
+    }
+
+    safeLog("Info", "Dragon spawned at %s", tostring(position))
+    return dragon
+end
+
+--[[
+    Create a visual model for the dragon
+
+    @param dragon table - Dragon data
+    @param position Vector3 - Spawn position
+    @return Model - Dragon model
+]]
+function DinoService:CreateDragonModel(dragon, position)
+    local dragonDef = BOSS_DEFINITIONS.dragon
+
+    -- Create a large, scary dragon model
+    local model = Instance.new("Model")
+    model.Name = "Dragon_SkyTerror"
+
+    -- Dragon body (large, elongated)
+    local body = Instance.new("Part")
+    body.Name = "Body"
+    body.Size = Vector3.new(20, 8, 40)  -- Large body
+    body.Color = dragonDef.color or Color3.fromRGB(20, 20, 20)
+    body.Material = Enum.Material.SmoothPlastic
+    body.CanCollide = false  -- Flying, no collision needed
+    body.Anchored = true
+    body.CFrame = CFrame.new(position)
+    body.Parent = model
+
+    -- Dragon head
+    local head = Instance.new("Part")
+    head.Name = "Head"
+    head.Size = Vector3.new(8, 6, 12)
+    head.Color = dragonDef.color or Color3.fromRGB(20, 20, 20)
+    head.Material = Enum.Material.SmoothPlastic
+    head.CanCollide = false
+    head.Anchored = true
+    head.CFrame = CFrame.new(position + Vector3.new(0, 2, 22))
+    head.Parent = model
+
+    -- Dragon wings (large)
+    local leftWing = Instance.new("Part")
+    leftWing.Name = "LeftWing"
+    leftWing.Size = Vector3.new(30, 2, 20)
+    leftWing.Color = Color3.fromRGB(40, 40, 40)
+    leftWing.Material = Enum.Material.SmoothPlastic
+    leftWing.CanCollide = false
+    leftWing.Anchored = true
+    leftWing.CFrame = CFrame.new(position + Vector3.new(-20, 2, 0)) * CFrame.Angles(0, 0, math.rad(-15))
+    leftWing.Parent = model
+
+    local rightWing = Instance.new("Part")
+    rightWing.Name = "RightWing"
+    rightWing.Size = Vector3.new(30, 2, 20)
+    rightWing.Color = Color3.fromRGB(40, 40, 40)
+    rightWing.Material = Enum.Material.SmoothPlastic
+    rightWing.CanCollide = false
+    rightWing.Anchored = true
+    rightWing.CFrame = CFrame.new(position + Vector3.new(20, 2, 0)) * CFrame.Angles(0, 0, math.rad(15))
+    rightWing.Parent = model
+
+    -- Dragon tail
+    local tail = Instance.new("Part")
+    tail.Name = "Tail"
+    tail.Size = Vector3.new(4, 4, 25)
+    tail.Color = dragonDef.color or Color3.fromRGB(20, 20, 20)
+    tail.Material = Enum.Material.SmoothPlastic
+    tail.CanCollide = false
+    tail.Anchored = true
+    tail.CFrame = CFrame.new(position + Vector3.new(0, 0, -30))
+    tail.Parent = model
+
+    -- Add fiery glow effect
+    if dragonDef.glowEnabled then
+        local glow = Instance.new("PointLight")
+        glow.Name = "DragonGlow"
+        glow.Color = dragonDef.glowColor or Color3.fromRGB(255, 100, 0)
+        glow.Brightness = 3
+        glow.Range = 40
+        glow.Parent = body
+
+        -- Fire particles on body
+        local fire = Instance.new("Fire")
+        fire.Name = "DragonFire"
+        fire.Heat = 5
+        fire.Size = 10
+        fire.Color = Color3.fromRGB(255, 100, 0)
+        fire.SecondaryColor = Color3.fromRGB(255, 50, 0)
+        fire.Parent = body
+    end
+
+    -- Humanoid for health tracking
+    local humanoid = Instance.new("Humanoid")
+    humanoid.MaxHealth = dragon.maxHealth
+    humanoid.Health = dragon.health
+    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
+    humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOn
+    humanoid.Parent = model
+
+    model.PrimaryPart = body
+
+    -- Place in Dinosaurs folder
+    local dinoFolder = workspace:FindFirstChild("Dinosaurs")
+    if not dinoFolder then
+        dinoFolder = Instance.new("Folder")
+        dinoFolder.Name = "Dinosaurs"
+        dinoFolder.Parent = workspace
+    end
+    model.Parent = dinoFolder
+
+    return model
+end
+
+--[[
+    Control the dragon's flight path across the map
+    Dragon flies from entry to exit, attacking players along the way
+
+    @param dragon table - Dragon data
+    @param startPos Vector3 - Starting position
+    @param endPos Vector3 - Target exit position
+    @param dragonDef table - Dragon definition
+]]
+function DinoService:DragonFlyPath(dragon, startPos, endPos, dragonDef)
+    if not dragon or not dragon.model then return end
+
+    local flySpeed = dragonDef.flySpeed or 100
+    local attackInterval = dragonDef.attackInterval or 8
+    local raidDuration = dragonDef.raidDuration or 60
+
+    local raidStartTime = tick()
+    local lastAttackTime = tick()
+    local flightDirection = (endPos - startPos).Unit
+    local currentPos = startPos
+
+    -- Wing flap sound loop
+    task.spawn(function()
+        while isDragonRaidActive and dragon.model and dragon.model.Parent do
+            self:PlayDragonSound("wingFlap", dragon.position, 200)
+            task.wait(1.5)
+        end
+    end)
+
+    -- Main flight loop
+    task.spawn(function()
+        while isDragonRaidActive and dragon.model and dragon.model.Parent do
+            local now = tick()
+            local elapsed = now - raidStartTime
+
+            -- Check if raid should end
+            if elapsed > raidDuration or dragon.health <= 0 then
+                self:EndDragonRaid()
+                return
+            end
+
+            -- Move dragon forward
+            local moveDistance = flySpeed * AI_UPDATE_RATE
+            currentPos = currentPos + flightDirection * moveDistance
+            dragon.position = currentPos
+
+            -- Update model position with smooth flight
+            if dragon.model and dragon.model.PrimaryPart then
+                -- Add slight up/down bobbing for natural flight
+                local bobOffset = math.sin(elapsed * 2) * 3
+                local targetCFrame = CFrame.new(currentPos + Vector3.new(0, bobOffset, 0))
+                    * CFrame.Angles(0, math.atan2(-flightDirection.X, -flightDirection.Z), 0)
+
+                -- Move all parts together
+                pcall(function()
+                    dragon.model:SetPrimaryPartCFrame(targetCFrame)
+                end)
+            end
+
+            -- Attack players periodically
+            if now - lastAttackTime > attackInterval then
+                lastAttackTime = now
+                self:DragonAttackNearestPlayer(dragon)
+            end
+
+            -- Check if dragon has exited the map
+            local distanceFromStart = (currentPos - startPos).Magnitude
+            local totalDistance = (endPos - startPos).Magnitude
+            if distanceFromStart > totalDistance then
+                safeLog("Info", "Dragon has crossed the map")
+                self:EndDragonRaid()
+                return
+            end
+
+            task.wait(AI_UPDATE_RATE)
+        end
+    end)
+end
+
+--[[
+    Make the dragon attack the nearest player
+
+    @param dragon table - Dragon data
+]]
+function DinoService:DragonAttackNearestPlayer(dragon)
+    if not dragon or not dragon.model then return end
+
+    -- Find nearest player
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if rootPart then
+                local distance = (rootPart.Position - dragon.position).Magnitude
+                if distance < nearestDistance and distance < 150 then  -- Attack range
+                    nearestDistance = distance
+                    nearestPlayer = player
+                end
+            end
+        end
+    end
+
+    if not nearestPlayer then return end
+
+    local character = nearestPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+
+    -- Play attack roar
+    self:PlayDragonSound("roar", dragon.position, 500)
+
+    -- Determine attack type based on distance
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    if nearestDistance < 50 then
+        -- Close range - fire breath
+        self:DragonFireBreath(dragon, rootPart.Position)
+    else
+        -- Medium range - dive attack
+        self:DragonDiveAttack(dragon, nearestPlayer, rootPart.Position)
+    end
+end
+
+--[[
+    Dragon fire breath attack
+    Creates a cone of fire damage
+
+    @param dragon table - Dragon data
+    @param targetPos Vector3 - Target position
+]]
+function DinoService:DragonFireBreath(dragon, targetPos)
+    if not dragon or not dragon.model then return end
+
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    local fireAbility = dragonDef.abilities.fire_breath
+
+    -- Play fire sound
+    self:PlayDragonSound("fireBreath", dragon.position, 300)
+
+    -- Create visual fire effect
+    local fireStart = dragon.position
+    local direction = (targetPos - fireStart).Unit
+
+    -- Spawn fire particles along the breath path
+    for i = 1, 5 do
+        local firePos = fireStart + direction * (i * 10)
+
+        local firePart = Instance.new("Part")
+        firePart.Name = "DragonFire"
+        firePart.Size = Vector3.new(8, 8, 8)
+        firePart.Position = firePos
+        firePart.Anchored = true
+        firePart.CanCollide = false
+        firePart.Transparency = 0.5
+        firePart.Color = Color3.fromRGB(255, 100, 0)
+        firePart.Material = Enum.Material.Neon
+
+        local fire = Instance.new("Fire")
+        fire.Heat = 10
+        fire.Size = 15
+        fire.Parent = firePart
+
+        firePart.Parent = workspace
+        Debris:AddItem(firePart, fireAbility.duration or 2)
+    end
+
+    -- Damage players in the fire area
+    local damage = fireAbility.damage or 50
+    local radius = fireAbility.radius or 20
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if character then
+            local humanoid = character:FindFirstChild("Humanoid")
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if humanoid and rootPart then
+                -- Check if player is in fire cone
+                local playerDir = (rootPart.Position - fireStart).Unit
+                local dotProduct = direction:Dot(playerDir)
+                local distanceToFire = (rootPart.Position - fireStart).Magnitude
+
+                if dotProduct > 0.5 and distanceToFire < 60 then
+                    humanoid:TakeDamage(damage)
+
+                    -- Notify client of damage
+                    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                    if remotes and remotes:FindFirstChild("DamageDealt") then
+                        remotes.DamageDealt:FireClient(player, {
+                            damage = damage,
+                            source = "Dragon Fire",
+                        })
+                    end
+                end
+            end
+        end
+    end
+
+    safeLog("Debug", "Dragon used fire breath")
+end
+
+--[[
+    Dragon dive attack
+    Dragon swoops down to attack a player
+
+    @param dragon table - Dragon data
+    @param targetPlayer Player - Target player
+    @param targetPos Vector3 - Target position
+]]
+function DinoService:DragonDiveAttack(dragon, targetPlayer, targetPos)
+    if not dragon or not dragon.model then return end
+
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    local diveAbility = dragonDef.abilities.dive_attack
+
+    -- Play attack screech
+    self:PlayDragonSound("attack", dragon.position, 400)
+
+    -- Animate the dive (quick swoop down)
+    local originalHeight = dragon.position.Y
+    local diveTarget = Vector3.new(targetPos.X, targetPos.Y + 10, targetPos.Z)
+
+    task.spawn(function()
+        -- Dive down
+        local diveSteps = 10
+        for i = 1, diveSteps do
+            if not dragon.model or not dragon.model.Parent then return end
+
+            local progress = i / diveSteps
+            local divePos = dragon.position:Lerp(diveTarget, progress)
+
+            pcall(function()
+                dragon.model:SetPrimaryPartCFrame(CFrame.new(divePos))
+            end)
+
+            task.wait(0.05)
+        end
+
+        -- Deal damage at dive target
+        local damage = diveAbility.damage or 80
+        local knockback = diveAbility.knockback or 50
+
+        local character = targetPlayer.Character
+        if character then
+            local humanoid = character:FindFirstChild("Humanoid")
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+
+            if humanoid and rootPart then
+                local distance = (rootPart.Position - diveTarget).Magnitude
+                if distance < 25 then  -- Hit radius
+                    humanoid:TakeDamage(damage)
+
+                    -- Apply knockback
+                    local knockbackDir = (rootPart.Position - diveTarget).Unit
+                    local bodyVelocity = Instance.new("BodyVelocity")
+                    bodyVelocity.Velocity = knockbackDir * knockback + Vector3.new(0, 20, 0)
+                    bodyVelocity.MaxForce = Vector3.new(50000, 50000, 50000)
+                    bodyVelocity.Parent = rootPart
+                    Debris:AddItem(bodyVelocity, 0.3)
+
+                    safeLog("Debug", "Dragon dive hit %s for %d damage", targetPlayer.Name, damage)
+                end
+            end
+        end
+
+        -- Return to flight height
+        task.wait(0.5)
+        for i = 1, diveSteps do
+            if not dragon.model or not dragon.model.Parent then return end
+
+            local progress = i / diveSteps
+            local returnPos = diveTarget:Lerp(Vector3.new(diveTarget.X, originalHeight, diveTarget.Z), progress)
+
+            pcall(function()
+                dragon.model:SetPrimaryPartCFrame(CFrame.new(returnPos))
+            end)
+
+            task.wait(0.05)
+        end
+
+        dragon.position = Vector3.new(diveTarget.X, originalHeight, diveTarget.Z)
+    end)
+end
+
+--[[
+    Play a dragon sound effect
+
+    @param soundType string - Type of sound (approach, roar, attack, wingFlap, fireBreath)
+    @param position Vector3 - Position to play sound
+    @param maxDistance number - Maximum hearing distance
+]]
+function DinoService:PlayDragonSound(soundType, position, maxDistance)
+    local dragonDef = BOSS_DEFINITIONS.dragon
+    local soundId = dragonDef.sounds and dragonDef.sounds[soundType]
+
+    if not soundId then return end
+
+    -- Create 3D sound at position
+    local soundPart = Instance.new("Part")
+    soundPart.Name = "DragonSound_" .. soundType
+    soundPart.Size = Vector3.new(1, 1, 1)
+    soundPart.Position = position
+    soundPart.Anchored = true
+    soundPart.CanCollide = false
+    soundPart.Transparency = 1
+    soundPart.Parent = workspace
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = soundId
+    sound.Volume = 1.0
+    sound.RollOffMode = Enum.RollOffMode.Linear
+    sound.RollOffMaxDistance = maxDistance or 300
+    sound.RollOffMinDistance = 20
+    sound.Parent = soundPart
+    sound:Play()
+
+    -- Cleanup after sound ends
+    sound.Ended:Connect(function()
+        soundPart:Destroy()
+    end)
+
+    -- Backup cleanup in case sound doesn't fire Ended
+    Debris:AddItem(soundPart, 10)
+end
+
+--[[
+    End the current dragon raid
+    Removes the dragon and resets raid state
+]]
+function DinoService:EndDragonRaid()
+    if not isDragonRaidActive then return end
+
+    safeLog("Info", "Dragon raid ending")
+
+    if activeDragon then
+        -- Check if dragon was killed or just left
+        if activeDragon.health <= 0 then
+            -- Dragon was killed - spawn loot
+            safeLog("Info", "Dragon was slain!")
+            local lootSystem = framework:GetModule("LootSystem")
+            if lootSystem and activeDragon.position then
+                lootSystem:SpawnBossDropLoot(activeDragon.position, "dragon")
+            end
+        else
+            -- Dragon left - just remove it
+            safeLog("Info", "Dragon has departed")
+        end
+
+        -- Remove dragon model
+        if activeDragon.model and activeDragon.model.Parent then
+            activeDragon.model:Destroy()
+        end
+
+        -- Clean up from active lists
+        if activeDragon.id then
+            activeDinosaurs[activeDragon.id] = nil
+            activeBosses[activeDragon.id] = nil
+        end
+
+        activeDragon = nil
+    end
+
+    isDragonRaidActive = false
 end
 
 --[[
@@ -921,7 +1877,7 @@ function DinoService:SpawnWave()
         return
     end
 
-    framework.Log("Debug", "Spawning wave: %d dinosaurs (current: %d, max: %d)",
+    safeLog("Debug", "Spawning wave: %d dinosaurs (current: %d, max: %d)",
         toSpawn, currentCount, maxAllowed)
 
     -- Spawn dinosaurs with pack grouping
@@ -1071,7 +2027,7 @@ end
 function DinoService:SpawnDinosaur(dinoType, position, packId)
     local def = DINOSAUR_DEFINITIONS[dinoType]
     if not def then
-        framework.Log("Error", "Unknown dinosaur type: %s", dinoType)
+        safeLog("Error", "Unknown dinosaur type: %s", dinoType)
         return nil
     end
 
@@ -1137,6 +2093,14 @@ function DinoService:SpawnDinosaur(dinoType, position, packId)
     -- Store in active list
     activeDinosaurs[dinoId] = dinosaur
 
+    -- Play spawn roar sound (for predators)
+    if def.behavior ~= "swarm" then
+        local audioService = framework:GetService("AudioService")
+        if audioService and audioService.PlayDinoSound then
+            audioService:PlayDinoSound(dinosaur.model, dinoType, "roar")
+        end
+    end
+
     -- Broadcast spawn event to clients
     local remotes = ReplicatedStorage:FindFirstChild("Remotes")
     if remotes then
@@ -1151,7 +2115,7 @@ function DinoService:SpawnDinosaur(dinoType, position, packId)
         })
     end
 
-    framework.Log("Debug", "Spawned %s at %s", def.name, tostring(position))
+    safeLog("Debug", "Spawned %s at %s", def.name, tostring(position))
 
     return dinosaur
 end
@@ -1188,7 +2152,7 @@ function DinoService:CreateDinosaurModel(dinoType, def, position)
     local spawnPosition = Vector3.new(position.X, spawnHeight, position.Z)
     model:SetPrimaryPartCFrame(CFrame.new(spawnPosition))
 
-    framework.Log("Debug", "Spawning %s at terrain height %.1f (spawn Y: %.1f)",
+    safeLog("Debug", "Spawning %s at terrain height %.1f (spawn Y: %.1f)",
         dinoType, terrainHeight, spawnHeight)
 
     -- Ensure Dinosaurs folder exists
@@ -1216,69 +2180,152 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     local model = Instance.new("Model")
     model.Name = dinoType
 
+    -- Get dimensions and colors from definition
     local bodySize = def.modelSize or Vector3.new(4, 3, 8)
-    local bodyColor = def.color or Color3.fromRGB(100, 100, 100)
-    local darkerColor = Color3.fromRGB(
-        math.floor(bodyColor.R * 255 * 0.7),
-        math.floor(bodyColor.G * 255 * 0.7),
-        math.floor(bodyColor.B * 255 * 0.7)
+    local primaryColor = def.color or Color3.fromRGB(100, 100, 100)
+    local secondaryColor = def.secondaryColor or Color3.fromRGB(
+        math.min(255, math.floor(primaryColor.R * 255 * 1.15)),
+        math.min(255, math.floor(primaryColor.G * 255 * 1.15)),
+        math.min(255, math.floor(primaryColor.B * 255 * 1.15))
     )
-    local lighterColor = Color3.fromRGB(
-        math.min(255, math.floor(bodyColor.R * 255 * 1.2)),
-        math.min(255, math.floor(bodyColor.G * 255 * 1.2)),
-        math.min(255, math.floor(bodyColor.B * 255 * 1.2))
+    local accentColor = def.accentColor or Color3.fromRGB(
+        math.floor(primaryColor.R * 255 * 0.7),
+        math.floor(primaryColor.G * 255 * 0.7),
+        math.floor(primaryColor.B * 255 * 0.7)
     )
 
-    -- Create body part (main dinosaur body) - VISIBLE
-    -- Body is ANCHORED to prevent falling through terrain
-    -- Movement is handled by CFrame updates in AI system
+    -- Select material based on dinosaur type for realistic appearance
+    local baseMaterial = Enum.Material.SmoothPlastic
+    local scaleMaterial = Enum.Material.Slate  -- Rough, scaly look
+    local softMaterial = Enum.Material.Fabric
+
+    if def.materialType == "scales" then
+        baseMaterial = Enum.Material.Slate
+    elseif def.materialType == "rough_scales" then
+        baseMaterial = Enum.Material.Cobblestone  -- More textured
+    elseif def.materialType == "armored" then
+        baseMaterial = Enum.Material.Concrete  -- Heavy armor plates
+    elseif def.materialType == "smooth_scales" then
+        baseMaterial = Enum.Material.SmoothPlastic
+    elseif def.materialType == "membrane" then
+        baseMaterial = Enum.Material.Fabric  -- Leathery wings
+    end
+
+    --==========================================================================
+    -- BODY - Main torso with proper proportions
+    --==========================================================================
     local body = Instance.new("Part")
     body.Name = "Body"
-    body.Anchored = true  -- ANCHORED to prevent physics issues
+    body.Anchored = true
     body.CanCollide = true
     body.Size = bodySize
-    body.Color = bodyColor
-    body.Material = Enum.Material.Fabric  -- More visible than SmoothPlastic
-    body.Transparency = 0  -- Ensure fully visible
+    body.Color = primaryColor
+    body.Material = baseMaterial
+    body.Transparency = 0
     body.CastShadow = true
     body.Parent = model
     model.PrimaryPart = body
 
-    -- Create head (sphere at front) - VISIBLE
-    local headSize = bodySize.Y * 0.7
+    -- Add underbelly (lighter colored bottom)
+    local belly = Instance.new("Part")
+    belly.Name = "Belly"
+    belly.Anchored = false
+    belly.CanCollide = false
+    belly.Size = Vector3.new(bodySize.X * 0.9, bodySize.Y * 0.35, bodySize.Z * 0.85)
+    belly.Color = secondaryColor
+    belly.Material = softMaterial
+    belly.CFrame = body.CFrame * CFrame.new(0, -bodySize.Y * 0.28, 0)
+    belly.Parent = model
+
+    local bellyWeld = Instance.new("WeldConstraint")
+    bellyWeld.Part0 = body
+    bellyWeld.Part1 = belly
+    bellyWeld.Parent = model
+
+    -- Add dorsal ridge/spine row on back for texture
+    local ridgeCount = math.floor(bodySize.Z / 2)
+    for i = 1, ridgeCount do
+        local ridge = Instance.new("Part")
+        ridge.Name = "Ridge" .. i
+        local ridgeHeight = bodySize.Y * 0.08 * (1 + math.sin(i * 0.5) * 0.3)
+        ridge.Size = Vector3.new(bodySize.X * 0.15, ridgeHeight, bodySize.Z / ridgeCount * 0.4)
+        ridge.Color = accentColor
+        ridge.Material = scaleMaterial
+        ridge.Anchored = false
+        ridge.CanCollide = false
+        ridge.CastShadow = true
+        local zPos = bodySize.Z * 0.4 - (i - 1) * (bodySize.Z * 0.8 / ridgeCount)
+        ridge.CFrame = body.CFrame * CFrame.new(0, bodySize.Y * 0.5, zPos)
+        ridge.Parent = model
+
+        local ridgeWeld = Instance.new("WeldConstraint")
+        ridgeWeld.Part0 = body
+        ridgeWeld.Part1 = ridge
+        ridgeWeld.Parent = model
+    end
+
+    --==========================================================================
+    -- HEAD - Detailed skull with proper features
+    --==========================================================================
+    local isBipedal = dinoType == "raptor" or dinoType == "trex" or dinoType == "dilophosaurus"
+        or dinoType == "carnotaurus" or dinoType == "compy" or dinoType == "spinosaurus"
+
+    -- Head size varies by dinosaur type
+    local headScale = 0.6
+    if dinoType == "trex" then headScale = 0.8 end  -- T-Rex has massive head
+    if dinoType == "raptor" or dinoType == "compy" then headScale = 0.5 end
+    if dinoType == "triceratops" then headScale = 0.9 end  -- Large frilled head
+
+    local headSize = bodySize.Y * headScale
     local head = Instance.new("Part")
     head.Name = "Head"
-    head.Shape = Enum.PartType.Ball
-    head.Size = Vector3.new(headSize, headSize, headSize)
-    head.Color = bodyColor
-    head.Material = Enum.Material.Fabric
-    head.Transparency = 0
+    head.Size = Vector3.new(headSize * 0.8, headSize * 0.7, headSize * 1.1)
+    head.Color = primaryColor
+    head.Material = baseMaterial
     head.Anchored = false
     head.CanCollide = false
     head.CastShadow = true
     head.Parent = model
 
-    -- Position head at front of body
-    local headOffset = CFrame.new(0, bodySize.Y * 0.2, bodySize.Z * 0.5 + headSize * 0.3)
+    -- Neck connection (raised for bipedal, lower for quadrupedal)
+    local neckHeight = isBipedal and bodySize.Y * 0.3 or bodySize.Y * 0.1
+    local headOffset = CFrame.new(0, neckHeight, bodySize.Z * 0.5 + headSize * 0.4)
     head.CFrame = body.CFrame * headOffset
 
-    -- Weld head to body
     local headWeld = Instance.new("WeldConstraint")
     headWeld.Part0 = body
     headWeld.Part1 = head
     headWeld.Parent = model
 
-    -- Create snout/jaw
+    -- Add neck
+    local neck = Instance.new("Part")
+    neck.Name = "Neck"
+    neck.Size = Vector3.new(headSize * 0.5, bodySize.Y * 0.4, headSize * 0.6)
+    neck.Color = primaryColor
+    neck.Material = baseMaterial
+    neck.Anchored = false
+    neck.CanCollide = false
+    neck.CastShadow = true
+    neck.CFrame = body.CFrame * CFrame.new(0, neckHeight * 0.5, bodySize.Z * 0.35)
+        * CFrame.Angles(math.rad(-15), 0, 0)
+    neck.Parent = model
+
+    local neckWeld = Instance.new("WeldConstraint")
+    neckWeld.Part0 = body
+    neckWeld.Part1 = neck
+    neckWeld.Parent = model
+
+    -- Snout/Jaw with proper dinosaur shape
+    local snoutLength = headSize * (dinoType == "trex" and 1.0 or 0.7)
     local snout = Instance.new("Part")
     snout.Name = "Snout"
-    snout.Size = Vector3.new(headSize * 0.5, headSize * 0.4, headSize * 0.8)
-    snout.Color = darkerColor
-    snout.Material = Enum.Material.Fabric
-    snout.Transparency = 0
+    snout.Size = Vector3.new(headSize * 0.6, headSize * 0.4, snoutLength)
+    snout.Color = primaryColor
+    snout.Material = baseMaterial
     snout.Anchored = false
     snout.CanCollide = false
     snout.CastShadow = true
-    snout.CFrame = head.CFrame * CFrame.new(0, -headSize * 0.1, headSize * 0.5)
+    snout.CFrame = head.CFrame * CFrame.new(0, -headSize * 0.1, headSize * 0.5 + snoutLength * 0.3)
     snout.Parent = model
 
     local snoutWeld = Instance.new("WeldConstraint")
@@ -1286,47 +2333,120 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     snoutWeld.Part1 = snout
     snoutWeld.Parent = model
 
-    -- Create eyes
-    local eyeSize = headSize * 0.15
+    -- Lower jaw
+    local jaw = Instance.new("Part")
+    jaw.Name = "Jaw"
+    jaw.Size = Vector3.new(headSize * 0.5, headSize * 0.2, snoutLength * 0.8)
+    jaw.Color = accentColor
+    jaw.Material = baseMaterial
+    jaw.Anchored = false
+    jaw.CanCollide = false
+    jaw.CastShadow = true
+    jaw.CFrame = snout.CFrame * CFrame.new(0, -headSize * 0.25, snoutLength * 0.05)
+    jaw.Parent = model
+
+    local jawWeld = Instance.new("WeldConstraint")
+    jawWeld.Part0 = snout
+    jawWeld.Part1 = jaw
+    jawWeld.Parent = model
+
+    -- Eyes (menacing, predator look)
+    local eyeSize = headSize * 0.12
     for _, side in ipairs({-1, 1}) do
+        -- Eye socket (dark recess)
+        local eyeSocket = Instance.new("Part")
+        eyeSocket.Name = "EyeSocket" .. (side == -1 and "L" or "R")
+        eyeSocket.Size = Vector3.new(eyeSize * 1.3, eyeSize * 1.5, eyeSize * 0.5)
+        eyeSocket.Color = Color3.fromRGB(30, 25, 20)
+        eyeSocket.Material = Enum.Material.SmoothPlastic
+        eyeSocket.Anchored = false
+        eyeSocket.CanCollide = false
+        eyeSocket.CFrame = head.CFrame * CFrame.new(side * headSize * 0.38, headSize * 0.15, headSize * 0.35)
+        eyeSocket.Parent = model
+
+        local socketWeld = Instance.new("WeldConstraint")
+        socketWeld.Part0 = head
+        socketWeld.Part1 = eyeSocket
+        socketWeld.Parent = model
+
+        -- Eyeball
         local eye = Instance.new("Part")
         eye.Name = "Eye" .. (side == -1 and "L" or "R")
         eye.Shape = Enum.PartType.Ball
         eye.Size = Vector3.new(eyeSize, eyeSize, eyeSize)
-        eye.Color = Color3.new(1, 0.9, 0)  -- Yellow eyes
-        eye.Material = Enum.Material.Neon
-        eye.Transparency = 0
+        eye.Color = Color3.fromRGB(255, 200, 50)  -- Amber/yellow predator eyes
+        eye.Material = Enum.Material.Glass
+        eye.Reflectance = 0.2
         eye.Anchored = false
         eye.CanCollide = false
-        eye.CFrame = head.CFrame * CFrame.new(side * headSize * 0.35, headSize * 0.15, headSize * 0.3)
+        eye.CFrame = eyeSocket.CFrame * CFrame.new(0, 0, eyeSize * 0.3)
         eye.Parent = model
 
         local eyeWeld = Instance.new("WeldConstraint")
-        eyeWeld.Part0 = head
+        eyeWeld.Part0 = eyeSocket
         eyeWeld.Part1 = eye
         eyeWeld.Parent = model
+
+        -- Pupil (slit for reptile look)
+        local pupil = Instance.new("Part")
+        pupil.Name = "Pupil" .. (side == -1 and "L" or "R")
+        pupil.Size = Vector3.new(eyeSize * 0.15, eyeSize * 0.7, eyeSize * 0.1)
+        pupil.Color = Color3.fromRGB(10, 10, 10)
+        pupil.Material = Enum.Material.SmoothPlastic
+        pupil.Anchored = false
+        pupil.CanCollide = false
+        pupil.CFrame = eye.CFrame * CFrame.new(0, 0, eyeSize * 0.4)
+        pupil.Parent = model
+
+        local pupilWeld = Instance.new("WeldConstraint")
+        pupilWeld.Part0 = eye
+        pupilWeld.Part1 = pupil
+        pupilWeld.Parent = model
     end
 
-    -- Create tail (multiple segments for better look)
-    local tailSegments = 3
+    -- Nostrils
+    for _, side in ipairs({-1, 1}) do
+        local nostril = Instance.new("Part")
+        nostril.Name = "Nostril" .. (side == -1 and "L" or "R")
+        nostril.Shape = Enum.PartType.Ball
+        nostril.Size = Vector3.new(eyeSize * 0.4, eyeSize * 0.3, eyeSize * 0.3)
+        nostril.Color = Color3.fromRGB(20, 15, 10)
+        nostril.Material = Enum.Material.SmoothPlastic
+        nostril.Anchored = false
+        nostril.CanCollide = false
+        nostril.CFrame = snout.CFrame * CFrame.new(side * snout.Size.X * 0.25, snout.Size.Y * 0.3, snout.Size.Z * 0.4)
+        nostril.Parent = model
+
+        local nostrilWeld = Instance.new("WeldConstraint")
+        nostrilWeld.Part0 = snout
+        nostrilWeld.Part1 = nostril
+        nostrilWeld.Parent = model
+    end
+
+    --==========================================================================
+    -- TAIL - Multi-segmented for realistic appearance
+    --==========================================================================
+    local tailSegments = 5
     local prevPart = body
     for i = 1, tailSegments do
+        local taperFactor = 1 - (i / (tailSegments + 1))
         local segmentSize = Vector3.new(
-            bodySize.X * (0.8 - i * 0.15),
-            bodySize.Y * (0.6 - i * 0.12),
-            bodySize.Z * 0.25
+            bodySize.X * taperFactor * 0.7,
+            bodySize.Y * taperFactor * 0.5,
+            bodySize.Z * 0.2
         )
         local tail = Instance.new("Part")
         tail.Name = "Tail" .. i
         tail.Size = segmentSize
-        tail.Color = i % 2 == 0 and darkerColor or bodyColor
-        tail.Material = Enum.Material.Fabric
-        tail.Transparency = 0
+        -- Alternate colors slightly for texture
+        tail.Color = i % 2 == 0 and accentColor or primaryColor
+        tail.Material = baseMaterial
         tail.Anchored = false
         tail.CanCollide = false
         tail.CastShadow = true
 
-        local tailOffset = CFrame.new(0, -bodySize.Y * 0.1 * i, -bodySize.Z * 0.3 - (i - 1) * segmentSize.Z * 0.8)
+        local tailOffset = CFrame.new(0, -bodySize.Y * 0.05 * i, -bodySize.Z * 0.45 - (i - 1) * segmentSize.Z * 1.1)
+            * CFrame.Angles(math.rad(-5 * i), 0, 0)  -- Slight upward curve
         tail.CFrame = body.CFrame * tailOffset
         tail.Parent = model
 
@@ -1337,92 +2457,255 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
         prevPart = tail
     end
 
-    -- Create legs (4 legs for most dinosaurs, 2 for bipedal)
-    local isBipedal = dinoType == "raptor" or dinoType == "trex" or dinoType == "dilophosaurus" or dinoType == "carnotaurus"
-    local legCount = isBipedal and 2 or 4
-    local legPositions = isBipedal
-        and {{-0.3, -0.5, 0}, {0.3, -0.5, 0}}
-        or {{-0.35, -0.5, 0.3}, {0.35, -0.5, 0.3}, {-0.35, -0.5, -0.3}, {0.35, -0.5, -0.3}}
+    --==========================================================================
+    -- LEGS - Proper dinosaur leg anatomy
+    --==========================================================================
+    local legPositions
+    if isBipedal then
+        -- Two strong back legs for bipedal dinosaurs
+        legPositions = {{-0.35, -0.45, -0.1}, {0.35, -0.45, -0.1}}
+    else
+        -- Four legs for quadrupeds
+        legPositions = {
+            {-0.4, -0.45, 0.35}, {0.4, -0.45, 0.35},   -- Front legs
+            {-0.4, -0.45, -0.25}, {0.4, -0.45, -0.25}  -- Back legs
+        }
+    end
 
     for i, pos in ipairs(legPositions) do
-        local legHeight = bodySize.Y * 0.8
-        local leg = Instance.new("Part")
-        leg.Name = "Leg" .. i
-        leg.Size = Vector3.new(bodySize.X * 0.2, legHeight, bodySize.Z * 0.15)
-        leg.Color = darkerColor
-        leg.Material = Enum.Material.Fabric
-        leg.Transparency = 0
-        leg.Anchored = false
-        leg.CanCollide = false
-        leg.CastShadow = true
-        leg.CFrame = body.CFrame * CFrame.new(
+        -- Upper leg (thigh)
+        local thighHeight = bodySize.Y * (isBipedal and 0.7 or 0.5)
+        local thigh = Instance.new("Part")
+        thigh.Name = "Thigh" .. i
+        thigh.Size = Vector3.new(bodySize.X * 0.25, thighHeight, bodySize.Z * 0.12)
+        thigh.Color = primaryColor
+        thigh.Material = baseMaterial
+        thigh.Anchored = false
+        thigh.CanCollide = false
+        thigh.CastShadow = true
+        thigh.CFrame = body.CFrame * CFrame.new(
             pos[1] * bodySize.X,
-            pos[2] * bodySize.Y - legHeight * 0.4,
+            pos[2] * bodySize.Y - thighHeight * 0.3,
             pos[3] * bodySize.Z
-        )
-        leg.Parent = model
+        ) * CFrame.Angles(math.rad(15), 0, 0)  -- Angled for natural stance
+        thigh.Parent = model
 
-        local legWeld = Instance.new("WeldConstraint")
-        legWeld.Part0 = body
-        legWeld.Part1 = leg
-        legWeld.Parent = model
+        local thighWeld = Instance.new("WeldConstraint")
+        thighWeld.Part0 = body
+        thighWeld.Part1 = thigh
+        thighWeld.Parent = model
 
-        -- Add foot
+        -- Lower leg (shin)
+        local shinHeight = thighHeight * 0.85
+        local shin = Instance.new("Part")
+        shin.Name = "Shin" .. i
+        shin.Size = Vector3.new(bodySize.X * 0.18, shinHeight, bodySize.Z * 0.1)
+        shin.Color = accentColor
+        shin.Material = baseMaterial
+        shin.Anchored = false
+        shin.CanCollide = false
+        shin.CastShadow = true
+        shin.CFrame = thigh.CFrame * CFrame.new(0, -thighHeight * 0.7, 0)
+            * CFrame.Angles(math.rad(-30), 0, 0)  -- Bent at knee
+        shin.Parent = model
+
+        local shinWeld = Instance.new("WeldConstraint")
+        shinWeld.Part0 = thigh
+        shinWeld.Part1 = shin
+        shinWeld.Parent = model
+
+        -- Foot with claws
         local foot = Instance.new("Part")
         foot.Name = "Foot" .. i
-        foot.Size = Vector3.new(bodySize.X * 0.25, bodySize.Y * 0.1, bodySize.Z * 0.2)
-        foot.Color = darkerColor
-        foot.Material = Enum.Material.Fabric
-        foot.Transparency = 0
+        foot.Size = Vector3.new(bodySize.X * 0.3, bodySize.Y * 0.1, bodySize.Z * 0.18)
+        foot.Color = accentColor
+        foot.Material = baseMaterial
         foot.Anchored = false
         foot.CanCollide = false
         foot.CastShadow = true
-        foot.CFrame = leg.CFrame * CFrame.new(0, -legHeight * 0.5, bodySize.Z * 0.05)
+        foot.CFrame = shin.CFrame * CFrame.new(0, -shinHeight * 0.5, bodySize.Z * 0.08)
         foot.Parent = model
 
         local footWeld = Instance.new("WeldConstraint")
-        footWeld.Part0 = leg
+        footWeld.Part0 = shin
         footWeld.Part1 = foot
         footWeld.Parent = model
-    end
 
-    -- Add spines/ridges on back for certain dinosaurs
-    if dinoType == "spinosaurus" or dinoType == "triceratops" then
-        local spineCount = 5
-        for i = 1, spineCount do
-            local spine = Instance.new("WedgePart")
-            spine.Name = "Spine" .. i
-            local spineHeight = bodySize.Y * (dinoType == "spinosaurus" and 0.8 or 0.3)
-            spine.Size = Vector3.new(bodySize.X * 0.1, spineHeight, bodySize.Z * 0.1)
-            spine.Color = lighterColor
-            spine.Material = Enum.Material.Fabric
-            spine.Transparency = 0
-            spine.Anchored = false
-            spine.CanCollide = false
-            spine.CastShadow = true
-            spine.CFrame = body.CFrame * CFrame.new(0, bodySize.Y * 0.5 + spineHeight * 0.4, bodySize.Z * (0.3 - i * 0.15))
-            spine.Parent = model
+        -- Add claws (3 per foot)
+        for c = 1, 3 do
+            local claw = Instance.new("Part")
+            claw.Name = "Claw" .. i .. "_" .. c
+            claw.Size = Vector3.new(foot.Size.X * 0.15, foot.Size.Y * 0.8, foot.Size.Z * 0.5)
+            claw.Color = Color3.fromRGB(50, 45, 40)  -- Dark claw color
+            claw.Material = Enum.Material.SmoothPlastic
+            claw.Anchored = false
+            claw.CanCollide = false
+            claw.CastShadow = true
+            local clawOffset = (c - 2) * foot.Size.X * 0.35
+            claw.CFrame = foot.CFrame * CFrame.new(clawOffset, -foot.Size.Y * 0.3, foot.Size.Z * 0.4)
+                * CFrame.Angles(math.rad(30), 0, 0)
+            claw.Parent = model
 
-            local spineWeld = Instance.new("WeldConstraint")
-            spineWeld.Part0 = body
-            spineWeld.Part1 = spine
-            spineWeld.Parent = model
+            local clawWeld = Instance.new("WeldConstraint")
+            clawWeld.Part0 = foot
+            clawWeld.Part1 = claw
+            clawWeld.Parent = model
         end
     end
 
-    -- Add horns for triceratops
+    -- Small arms for bipedal dinosaurs (T-Rex style)
+    if isBipedal and (dinoType == "trex" or dinoType == "carnotaurus") then
+        for _, side in ipairs({-1, 1}) do
+            local arm = Instance.new("Part")
+            arm.Name = "Arm" .. (side == -1 and "L" or "R")
+            arm.Size = Vector3.new(bodySize.X * 0.12, bodySize.Y * 0.25, bodySize.Z * 0.08)
+            arm.Color = primaryColor
+            arm.Material = baseMaterial
+            arm.Anchored = false
+            arm.CanCollide = false
+            arm.CastShadow = true
+            arm.CFrame = body.CFrame * CFrame.new(
+                side * bodySize.X * 0.45,
+                bodySize.Y * 0.1,
+                bodySize.Z * 0.3
+            ) * CFrame.Angles(math.rad(45), 0, side * math.rad(20))
+            arm.Parent = model
+
+            local armWeld = Instance.new("WeldConstraint")
+            armWeld.Part0 = body
+            armWeld.Part1 = arm
+            armWeld.Parent = model
+        end
+    end
+
+    --==========================================================================
+    -- DINOSAUR-SPECIFIC FEATURES
+    --==========================================================================
+
+    -- Spinosaurus sail
+    if dinoType == "spinosaurus" then
+        local sailColor = def.sailColor or Color3.fromRGB(140, 60, 45)
+        local sailSegments = 8
+        for i = 1, sailSegments do
+            local sailHeight = bodySize.Y * 0.9 * math.sin(math.pi * i / (sailSegments + 1))
+            local sail = Instance.new("Part")
+            sail.Name = "Sail" .. i
+            sail.Size = Vector3.new(bodySize.X * 0.08, sailHeight, bodySize.Z * 0.08)
+            sail.Color = sailColor
+            sail.Material = Enum.Material.Fabric  -- Thin membrane
+            sail.Transparency = 0.1
+            sail.Anchored = false
+            sail.CanCollide = false
+            sail.CastShadow = true
+            local zPos = bodySize.Z * 0.35 - (i - 1) * (bodySize.Z * 0.7 / sailSegments)
+            sail.CFrame = body.CFrame * CFrame.new(0, bodySize.Y * 0.5 + sailHeight * 0.5, zPos)
+            sail.Parent = model
+
+            local sailWeld = Instance.new("WeldConstraint")
+            sailWeld.Part0 = body
+            sailWeld.Part1 = sail
+            sailWeld.Parent = model
+        end
+    end
+
+    -- Triceratops frill and horns
     if dinoType == "triceratops" then
-        for _, offset in ipairs({{-0.25, 0.3, 0.4}, {0.25, 0.3, 0.4}, {0, 0.1, 0.6}}) do
+        local hornColor = def.hornColor or Color3.fromRGB(245, 235, 210)
+        local frillColor = def.accentColor or accentColor
+
+        -- Frill (shield behind head)
+        local frill = Instance.new("Part")
+        frill.Name = "Frill"
+        frill.Size = Vector3.new(headSize * 1.8, headSize * 1.4, headSize * 0.15)
+        frill.Color = frillColor
+        frill.Material = Enum.Material.Concrete
+        frill.Anchored = false
+        frill.CanCollide = false
+        frill.CastShadow = true
+        frill.CFrame = head.CFrame * CFrame.new(0, headSize * 0.5, -headSize * 0.3)
+            * CFrame.Angles(math.rad(-20), 0, 0)
+        frill.Parent = model
+
+        local frillWeld = Instance.new("WeldConstraint")
+        frillWeld.Part0 = head
+        frillWeld.Part1 = frill
+        frillWeld.Parent = model
+
+        -- Brow horns (two long horns)
+        for _, side in ipairs({-1, 1}) do
             local horn = Instance.new("Part")
-            horn.Name = "Horn"
-            horn.Size = Vector3.new(headSize * 0.1, headSize * 0.6, headSize * 0.1)
-            horn.Color = Color3.fromRGB(240, 230, 200)
-            horn.Material = Enum.Material.Fabric
-            horn.Transparency = 0
+            horn.Name = "BrowHorn" .. (side == -1 and "L" or "R")
+            horn.Size = Vector3.new(headSize * 0.12, headSize * 0.9, headSize * 0.12)
+            horn.Color = hornColor
+            horn.Material = Enum.Material.SmoothPlastic
             horn.Anchored = false
             horn.CanCollide = false
             horn.CastShadow = true
-            horn.CFrame = head.CFrame * CFrame.new(offset[1] * headSize, offset[2] * headSize, offset[3] * headSize) * CFrame.Angles(math.rad(-30), 0, 0)
+            horn.CFrame = head.CFrame * CFrame.new(side * headSize * 0.35, headSize * 0.4, headSize * 0.3)
+                * CFrame.Angles(math.rad(-45), 0, side * math.rad(10))
+            horn.Parent = model
+
+            local hornWeld = Instance.new("WeldConstraint")
+            hornWeld.Part0 = head
+            hornWeld.Part1 = horn
+            hornWeld.Parent = model
+        end
+
+        -- Nose horn (shorter)
+        local noseHorn = Instance.new("Part")
+        noseHorn.Name = "NoseHorn"
+        noseHorn.Size = Vector3.new(headSize * 0.15, headSize * 0.4, headSize * 0.15)
+        noseHorn.Color = hornColor
+        noseHorn.Material = Enum.Material.SmoothPlastic
+        noseHorn.Anchored = false
+        noseHorn.CanCollide = false
+        noseHorn.CastShadow = true
+        noseHorn.CFrame = snout.CFrame * CFrame.new(0, snout.Size.Y * 0.4, snout.Size.Z * 0.2)
+            * CFrame.Angles(math.rad(-30), 0, 0)
+        noseHorn.Parent = model
+
+        local noseHornWeld = Instance.new("WeldConstraint")
+        noseHornWeld.Part0 = snout
+        noseHornWeld.Part1 = noseHorn
+        noseHornWeld.Parent = model
+    end
+
+    -- Dilophosaurus crests
+    if dinoType == "dilophosaurus" then
+        local crestColor = def.accentColor or Color3.fromRGB(180, 80, 50)
+        for _, side in ipairs({-1, 1}) do
+            local crest = Instance.new("Part")
+            crest.Name = "Crest" .. (side == -1 and "L" or "R")
+            crest.Size = Vector3.new(headSize * 0.1, headSize * 0.5, headSize * 0.6)
+            crest.Color = crestColor
+            crest.Material = Enum.Material.Fabric
+            crest.Anchored = false
+            crest.CanCollide = false
+            crest.CastShadow = true
+            crest.CFrame = head.CFrame * CFrame.new(side * headSize * 0.25, headSize * 0.5, headSize * 0.1)
+            crest.Parent = model
+
+            local crestWeld = Instance.new("WeldConstraint")
+            crestWeld.Part0 = head
+            crestWeld.Part1 = crest
+            crestWeld.Parent = model
+        end
+    end
+
+    -- Carnotaurus horns
+    if dinoType == "carnotaurus" then
+        local hornColor = def.hornColor or Color3.fromRGB(60, 50, 45)
+        for _, side in ipairs({-1, 1}) do
+            local horn = Instance.new("Part")
+            horn.Name = "EyeHorn" .. (side == -1 and "L" or "R")
+            horn.Size = Vector3.new(headSize * 0.15, headSize * 0.35, headSize * 0.15)
+            horn.Color = hornColor
+            horn.Material = Enum.Material.SmoothPlastic
+            horn.Anchored = false
+            horn.CanCollide = false
+            horn.CastShadow = true
+            horn.CFrame = head.CFrame * CFrame.new(side * headSize * 0.35, headSize * 0.35, headSize * 0.15)
+                * CFrame.Angles(0, 0, side * math.rad(20))
             horn.Parent = model
 
             local hornWeld = Instance.new("WeldConstraint")
@@ -1432,61 +2715,119 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
         end
     end
 
-    -- Add name billboard above dinosaur
+    -- Pteranodon wings
+    if dinoType == "pteranodon" then
+        local wingColor = def.secondaryColor or secondaryColor
+        for _, side in ipairs({-1, 1}) do
+            local wing = Instance.new("Part")
+            wing.Name = "Wing" .. (side == -1 and "L" or "R")
+            wing.Size = Vector3.new(bodySize.X * 2.5, bodySize.Y * 0.15, bodySize.Z * 1.2)
+            wing.Color = wingColor
+            wing.Material = Enum.Material.Fabric
+            wing.Transparency = 0.1
+            wing.Anchored = false
+            wing.CanCollide = false
+            wing.CastShadow = true
+            wing.CFrame = body.CFrame * CFrame.new(side * bodySize.X * 1.5, bodySize.Y * 0.2, 0)
+                * CFrame.Angles(0, 0, side * math.rad(-10))
+            wing.Parent = model
+
+            local wingWeld = Instance.new("WeldConstraint")
+            wingWeld.Part0 = body
+            wingWeld.Part1 = wing
+            wingWeld.Parent = model
+        end
+
+        -- Head crest
+        local crest = Instance.new("Part")
+        crest.Name = "HeadCrest"
+        crest.Size = Vector3.new(headSize * 0.1, headSize * 0.4, headSize * 0.8)
+        crest.Color = def.accentColor or accentColor
+        crest.Material = Enum.Material.SmoothPlastic
+        crest.Anchored = false
+        crest.CanCollide = false
+        crest.CastShadow = true
+        crest.CFrame = head.CFrame * CFrame.new(0, headSize * 0.4, -headSize * 0.2)
+            * CFrame.Angles(math.rad(-20), 0, 0)
+        crest.Parent = model
+
+        local crestWeld = Instance.new("WeldConstraint")
+        crestWeld.Part0 = head
+        crestWeld.Part1 = crest
+        crestWeld.Parent = model
+    end
+
+    --==========================================================================
+    -- UI ELEMENTS - Name and health display
+    --==========================================================================
+
+    -- Name billboard
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "NameBillboard"
-    billboard.Size = UDim2.new(0, 120, 0, 30)
-    billboard.StudsOffset = Vector3.new(0, bodySize.Y + 5, 0)
+    billboard.Size = UDim2.new(0, 150, 0, 35)
+    billboard.StudsOffset = Vector3.new(0, bodySize.Y + 6, 0)
     billboard.Adornee = body
-    billboard.AlwaysOnTop = false  -- Don't show through walls
-    billboard.MaxDistance = 100
+    billboard.AlwaysOnTop = false
+    billboard.MaxDistance = 120
     billboard.Parent = body
 
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Size = UDim2.new(1, 0, 1, 0)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = def.name or dinoType:upper()
-    nameLabel.TextColor3 = Color3.new(1, 0.3, 0.3)
+    nameLabel.TextColor3 = Color3.new(1, 0.4, 0.3)
     nameLabel.TextStrokeTransparency = 0
     nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
     nameLabel.Font = Enum.Font.GothamBold
     nameLabel.TextScaled = true
     nameLabel.Parent = billboard
 
-    -- Add health bar billboard
+    -- Health bar billboard
     local healthBillboard = Instance.new("BillboardGui")
     healthBillboard.Name = "HealthBillboard"
-    healthBillboard.Size = UDim2.new(0, 100, 0, 12)
-    healthBillboard.StudsOffset = Vector3.new(0, bodySize.Y + 3, 0)
+    healthBillboard.Size = UDim2.new(0, 120, 0, 14)
+    healthBillboard.StudsOffset = Vector3.new(0, bodySize.Y + 4, 0)
     healthBillboard.Adornee = body
     healthBillboard.AlwaysOnTop = false
-    healthBillboard.MaxDistance = 100
+    healthBillboard.MaxDistance = 120
     healthBillboard.Parent = body
 
     local healthBg = Instance.new("Frame")
     healthBg.Size = UDim2.new(1, 0, 1, 0)
-    healthBg.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
-    healthBg.BorderSizePixel = 2
-    healthBg.BorderColor3 = Color3.new(0, 0, 0)
+    healthBg.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+    healthBg.BorderSizePixel = 0
     healthBg.Parent = healthBillboard
+
+    local healthBgCorner = Instance.new("UICorner")
+    healthBgCorner.CornerRadius = UDim.new(0, 4)
+    healthBgCorner.Parent = healthBg
 
     local healthBar = Instance.new("Frame")
     healthBar.Name = "HealthBar"
     healthBar.Size = UDim2.new(1, -4, 1, -4)
     healthBar.Position = UDim2.new(0, 2, 0, 2)
-    healthBar.BackgroundColor3 = Color3.new(0.2, 0.9, 0.2)
+    healthBar.BackgroundColor3 = Color3.new(0.3, 0.9, 0.3)
     healthBar.BorderSizePixel = 0
     healthBar.Parent = healthBg
 
-    -- Add humanoid for pathfinding and health
+    local healthBarCorner = Instance.new("UICorner")
+    healthBarCorner.CornerRadius = UDim.new(0, 3)
+    healthBarCorner.Parent = healthBar
+
+    --==========================================================================
+    -- HUMANOID - For pathfinding and health tracking
+    --==========================================================================
+
     local humanoid = Instance.new("Humanoid")
     humanoid.MaxHealth = def.health
     humanoid.Health = def.health
     humanoid.WalkSpeed = def.speed
-    humanoid.HipHeight = bodySize.Y * 0.3  -- Proper ground clearance
+    humanoid.HipHeight = bodySize.Y * 0.4
+    humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
     humanoid.Parent = model
 
-    -- Create root part for humanoid (at ground level)
+    -- Root part for humanoid
     local rootPart = Instance.new("Part")
     rootPart.Name = "HumanoidRootPart"
     rootPart.Transparency = 1
@@ -1496,13 +2837,13 @@ function DinoService:CreatePlaceholderModel(dinoType, def)
     rootPart.Anchored = false
     rootPart.Parent = model
 
-    -- Weld body to root
     local weld = Instance.new("WeldConstraint")
     weld.Part0 = rootPart
     weld.Part1 = body
     weld.Parent = model
 
-    framework.Log("Debug", "Created visible placeholder model for %s at size %s", dinoType, tostring(bodySize))
+    safeLog("Debug", "Created detailed %s model (size: %s, material: %s)",
+        dinoType, tostring(bodySize), def.materialType or "default")
 
     return model
 end
@@ -1516,19 +2857,87 @@ function DinoService:GetTerrainHeight(position)
     local rayOrigin = Vector3.new(position.X, 500, position.Z)
     local rayDirection = Vector3.new(0, -1000, 0)
 
+    -- Build comprehensive exclusion list to find actual terrain, not placed objects
+    local excludeList = {}
+    local folderNames = {
+        "Dinosaurs", "POIs", "Flora", "Decorations", "POIBuildings",
+        "GroundLoot", "LobbyPlatform", "Map", "Biomes", "Vegetation",
+        "Props", "Hazards", "Events", "ChestSpawnPoints", "DinoSpawnPoints",
+        "Chests", "SpawnedLoot", "SupplyDrops"
+    }
+
+    for _, name in ipairs(folderNames) do
+        local folder = workspace:FindFirstChild(name)
+        if folder then
+            table.insert(excludeList, folder)
+        end
+    end
+
+    -- Also exclude all players
+    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
+        if player.Character then
+            table.insert(excludeList, player.Character)
+        end
+    end
+
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = {workspace:FindFirstChild("Dinosaurs")}
+    raycastParams.FilterDescendantsInstances = excludeList
     raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
 
     local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
 
-    if result then
+    -- Only accept if we hit actual terrain
+    if result and result.Instance:IsA("Terrain") then
         return result.Position.Y
     end
 
-    -- Fallback to default terrain height
-    return 5
+    -- Fallback: Try voxel reading
+    -- ReadVoxels returns: materials[x][y][z], occupancies[x][y][z]
+    local terrain = workspace:FindFirstChildOfClass("Terrain")
+    if terrain then
+        local success, materials, occupancies = pcall(function()
+            local region = Region3.new(
+                Vector3.new(position.X - 2, 0, position.Z - 2),
+                Vector3.new(position.X + 2, 200, position.Z + 2)
+            ):ExpandToGrid(4)
+            return terrain:ReadVoxels(region, 4)
+        end)
+
+        if success and materials and #materials > 0 then
+            local xSize = #materials
+            local ySize = #materials[1]
+            local zSize = #materials[1][1]
+            local midX = math.ceil(xSize / 2)
+            local midZ = math.ceil(zSize / 2)
+
+            -- Find highest non-air voxel at center of sample
+            for y = ySize, 1, -1 do
+                local mat = materials[midX][y][midZ]
+                if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                    return (y - 1) * 4  -- Convert voxel index to world Y
+                end
+            end
+        end
+    end
+
+    -- Fallback: Calculate terrain height based on noise formula (matches TerrainSetup)
+    local MAP_SIZE = 2048
+    local x, z = position.X, position.Z
+    local distFromCenter = math.sqrt(x * x + z * z)
+    local maxDist = MAP_SIZE / 2
+    local normalizedDist = math.min(1, distFromCenter / maxDist)
+    local edgeFalloff = 1 - (normalizedDist ^ 3)
+
+    local baseNoise = math.noise(x / 200, z / 200, 0)
+    local detailNoise = math.noise(x / 50, z / 50, 0) * 0.5
+    local combinedNoise = (baseNoise + detailNoise) / 1.5
+
+    local baseHeight = 10
+    local heightVariation = 40
+    local calculatedHeight = baseHeight + combinedNoise * heightVariation * edgeFalloff
+
+    return math.max(5, calculatedHeight)
 end
 
 --=============================================================================
@@ -1614,14 +3023,23 @@ function DinoService:SetState(dino, newState)
     dino.state = newState
     dino.stateTime = 0
 
-    -- Broadcast state change for animations
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes and remotes:FindFirstChild("DinoStateChanged") then
-        remotes.DinoStateChanged:FireAllClients({
+    -- Broadcast state change with distance filtering (animations only matter nearby)
+    local dinoPos = self:GetDinoPosition(dino)
+    if dinoPos and networkUtils then
+        networkUtils.FireNearby("DinoStateChanged", dinoPos, 200, {
             dinoId = dino.id,
             state = newState,
             previousState = dino.previousState,
         })
+    else
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes and remotes:FindFirstChild("DinoStateChanged") then
+            remotes.DinoStateChanged:FireAllClients({
+                dinoId = dino.id,
+                state = newState,
+                previousState = dino.previousState,
+            })
+        end
     end
 end
 
@@ -1896,24 +3314,31 @@ function DinoService:FindBestTarget(dino)
     local bestTarget = nil
     local bestScore = 0
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        local character = player.Character
-        if character then
-            local rootPart = character:FindFirstChild("HumanoidRootPart")
-            local humanoid = character:FindFirstChild("Humanoid")
+    -- Use spatial grid for O(1) nearby player lookup instead of O(n) all players
+    local nearbyPlayerIds = getPlayersInRadius(dinoPos, aggroRadius)
 
-            if rootPart and humanoid and humanoid.Health > 0 then
-                local distance = (rootPart.Position - dinoPos).Magnitude
+    for _, userId in ipairs(nearbyPlayerIds) do
+        local player = Players:GetPlayerByUserId(userId)
+        if player then
+            local character = player.Character
+            if character then
+                local rootPart = character:FindFirstChild("HumanoidRootPart")
+                local humanoid = character:FindFirstChild("Humanoid")
 
-                if distance <= aggroRadius then
-                    -- Calculate target score (threat + proximity)
-                    local threatLevel = dino.threatTable[player.UserId] or 0
-                    local proximityScore = 1 - (distance / aggroRadius)
-                    local score = threatLevel + proximityScore
+                if rootPart and humanoid and humanoid.Health > 0 then
+                    local distance = (rootPart.Position - dinoPos).Magnitude
 
-                    if score > bestScore then
-                        bestScore = score
-                        bestTarget = player
+                    -- Double-check distance (grid cells are approximate)
+                    if distance <= aggroRadius then
+                        -- Calculate target score (threat + proximity)
+                        local threatLevel = dino.threatTable[player.UserId] or 0
+                        local proximityScore = 1 - (distance / aggroRadius)
+                        local score = threatLevel + proximityScore
+
+                        if score > bestScore then
+                            bestScore = score
+                            bestTarget = player
+                        end
                     end
                 end
             end
@@ -2032,6 +3457,12 @@ function DinoService:ExecuteAttack(dino)
         return
     end
 
+    -- Play attack sound via AudioService
+    local audioService = framework:GetService("AudioService")
+    if audioService and audioService.PlayDinoSound then
+        audioService:PlayDinoSound(dino.model, dino.type, "attack")
+    end
+
     -- Calculate damage
     local damage = dino.damage
 
@@ -2076,18 +3507,29 @@ function DinoService:ExecuteAttack(dino)
     -- Add threat
     self:AddThreat(dino, dino.target.UserId, damage * 0.5)
 
-    -- Broadcast attack
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes and remotes:FindFirstChild("DinoAttack") then
-        remotes.DinoAttack:FireAllClients({
+    -- Broadcast attack with distance filtering (only nearby players need this)
+    local dinoPos = self:GetDinoPosition(dino)
+    if dinoPos and networkUtils then
+        networkUtils.FireNearby("DinoAttack", dinoPos, 250, {
             dinoId = dino.id,
             targetId = dino.target.UserId,
             damage = damage,
             attackType = "melee",
         })
+    else
+        -- Fallback to FireAllClients
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes and remotes:FindFirstChild("DinoAttack") then
+            remotes.DinoAttack:FireAllClients({
+                dinoId = dino.id,
+                targetId = dino.target.UserId,
+                damage = damage,
+                attackType = "melee",
+            })
+        end
     end
 
-    framework.Log("Debug", "%s attacked %s for %d damage",
+    safeLog("Debug", "%s attacked %s for %d damage",
         dino.name, dino.target.Name, math.floor(damage))
 end
 
@@ -2113,6 +3555,12 @@ function DinoService:DamageDinosaur(dinoId, damage, attacker)
     -- Apply damage
     dino.health = math.max(0, dino.health - damage)
 
+    -- Play hurt sound via AudioService
+    local audioService = framework:GetService("AudioService")
+    if audioService and audioService.PlayDinoSound then
+        audioService:PlayDinoSound(dino.model, dino.type, "hurt")
+    end
+
     -- Update model humanoid
     local humanoid = dino.model and dino.model:FindFirstChild("Humanoid")
     if humanoid then
@@ -2130,16 +3578,27 @@ function DinoService:DamageDinosaur(dinoId, damage, attacker)
         end
     end
 
-    -- Broadcast damage
-    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
-    if remotes and remotes:FindFirstChild("DinoDamaged") then
-        remotes.DinoDamaged:FireAllClients({
+    -- Broadcast damage with distance filtering
+    local dinoPos = self:GetDinoPosition(dino)
+    if dinoPos and networkUtils then
+        networkUtils.FireNearby("DinoDamaged", dinoPos, 200, {
             dinoId = dinoId,
             damage = damage,
             health = dino.health,
             maxHealth = dino.maxHealth,
             attackerId = attacker and attacker.UserId or nil,
         })
+    else
+        local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        if remotes and remotes:FindFirstChild("DinoDamaged") then
+            remotes.DinoDamaged:FireAllClients({
+                dinoId = dinoId,
+                damage = damage,
+                health = dino.health,
+                maxHealth = dino.maxHealth,
+                attackerId = attacker and attacker.UserId or nil,
+            })
+        end
     end
 
     -- Check for boss phase transition
@@ -2180,7 +3639,13 @@ function DinoService:KillDinosaur(dinoId, killer)
 
     dino.state = "dead"
 
-    framework.Log("Info", "%s killed by %s", dino.name, killer and killer.Name or "unknown")
+    -- Play death sound via AudioService
+    local audioService = framework:GetService("AudioService")
+    if audioService and audioService.PlayDinoSound then
+        audioService:PlayDinoSound(dino.model, dino.type, "death")
+    end
+
+    safeLog("Info", "%s killed by %s", dino.name, killer and killer.Name or "unknown")
 
     -- Handle pack leader death
     if dino.packId and dino.isPackLeader then
@@ -2226,17 +3691,132 @@ function DinoService:KillDinosaur(dinoId, killer)
         activeBosses[dinoId] = nil
     end
 
-    -- Remove model after delay
+    -- Play death animation (fall over) then fade out and despawn
     if dino.model then
-        task.delay(5, function()
-            if dino.model then
-                dino.model:Destroy()
-            end
-        end)
+        self:PlayDeathAnimation(dino)
     end
 
     -- Remove from active list
     activeDinosaurs[dinoId] = nil
+end
+
+--[[
+    Play death animation for a dinosaur
+    Makes the dinosaur fall over, fade out, then despawn
+
+    @param dino table - Dinosaur data
+]]
+function DinoService:PlayDeathAnimation(dino)
+    local model = dino.model
+    if not model then return end
+
+    local primaryPart = model.PrimaryPart
+    if not primaryPart then return end
+
+    -- Disable physics control by removing humanoid walkspeed
+    local humanoid = model:FindFirstChild("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = 0
+        humanoid.JumpPower = 0
+        humanoid.PlatformStand = true  -- Ragdoll-like state
+    end
+
+    -- Calculate fall direction (sideways)
+    local fallDirection = primaryPart.CFrame.RightVector
+    local startCFrame = primaryPart.CFrame
+    local fallAngle = math.rad(90)  -- Fall 90 degrees to the side
+
+    -- Animate the fall over 0.5 seconds
+    local fallDuration = 0.5
+    local startTime = tick()
+
+    local fallConnection
+    fallConnection = RunService.Heartbeat:Connect(function()
+        if not model or not model.Parent then
+            fallConnection:Disconnect()
+            return
+        end
+
+        local elapsed = tick() - startTime
+        local progress = math.min(elapsed / fallDuration, 1)
+
+        -- Ease out for natural fall
+        local easedProgress = 1 - (1 - progress) ^ 2
+
+        -- Rotate around the length axis (fall to the side)
+        local currentAngle = fallAngle * easedProgress
+        local fallCFrame = startCFrame * CFrame.Angles(0, 0, currentAngle)
+
+        -- Also drop slightly as it falls
+        local dropAmount = easedProgress * 1.5
+        fallCFrame = fallCFrame - Vector3.new(0, dropAmount, 0)
+
+        pcall(function()
+            model:SetPrimaryPartCFrame(fallCFrame)
+        end)
+
+        if progress >= 1 then
+            fallConnection:Disconnect()
+
+            -- Start fade out after lying on ground for 2 seconds
+            task.delay(2, function()
+                if model and model.Parent then
+                    self:FadeOutAndDestroy(model, 1.5)  -- 1.5 second fade
+                end
+            end)
+        end
+    end)
+end
+
+--[[
+    Fade out a model and then destroy it
+
+    @param model Model - The model to fade
+    @param duration number - Fade duration in seconds
+]]
+function DinoService:FadeOutAndDestroy(model, duration)
+    if not model or not model.Parent then return end
+
+    local startTime = tick()
+    local parts = {}
+
+    -- Collect all parts and their original transparency
+    for _, descendant in ipairs(model:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            table.insert(parts, {
+                part = descendant,
+                originalTransparency = descendant.Transparency
+            })
+        end
+    end
+
+    local fadeConnection
+    fadeConnection = RunService.Heartbeat:Connect(function()
+        if not model or not model.Parent then
+            fadeConnection:Disconnect()
+            return
+        end
+
+        local elapsed = tick() - startTime
+        local progress = math.min(elapsed / duration, 1)
+
+        -- Fade all parts
+        for _, partData in ipairs(parts) do
+            if partData.part and partData.part.Parent then
+                -- Lerp from original transparency to 1 (fully transparent)
+                partData.part.Transparency = partData.originalTransparency +
+                    (1 - partData.originalTransparency) * progress
+            end
+        end
+
+        if progress >= 1 then
+            fadeConnection:Disconnect()
+            -- Destroy the model
+            if model and model.Parent then
+                model:Destroy()
+            end
+        end
+    end)
 end
 
 --[[
@@ -2247,19 +3827,31 @@ end
 ]]
 function DinoService:SpawnDinoLoot(dino, killer)
     local def = dino.config
-    local lootTable = def.lootTable
-
-    if not lootTable then
-        return
-    end
-
     local position = self:GetDinoPosition(dino)
     if not position then
         return
     end
 
-    -- Get LootSystem if available
-    local lootSystem = framework:GetService("LootSystem")
+    -- Get LootSystem (use GetModule since it's registered as a module)
+    local lootSystem = framework:GetModule("LootSystem")
+
+    -- Check if this is a boss dinosaur
+    local isBoss = dino.isBoss or (def.behavior == "boss") or activeBosses[dino.id]
+
+    if isBoss and lootSystem and lootSystem.SpawnBossDropLoot then
+        -- Use GDD-compliant boss drop rarity distribution
+        -- Boss Drop: 0% Common, 0% Uncommon, 20% Rare, 50% Epic, 30% Legendary
+        local bossType = def.id or dino.type
+        lootSystem:SpawnBossDropLoot(position, bossType)
+        safeLog("Info", "Spawned boss loot for %s", bossType)
+        return
+    end
+
+    -- Regular dinosaur loot (use loot table from config)
+    local lootTable = def.lootTable
+    if not lootTable then
+        return
+    end
 
     for _, lootEntry in ipairs(lootTable) do
         if math.random() <= lootEntry.chance then
@@ -2270,13 +3862,10 @@ function DinoService:SpawnDinoLoot(dino, killer)
                     count = math.random(lootEntry.count[1], lootEntry.count[2])
                 end
 
-                lootSystem:SpawnLootItem(lootEntry.item, position, {
-                    rarity = lootEntry.rarity,
-                    count = count,
-                })
+                lootSystem:SpawnLootItem(lootEntry.item, lootEntry.type or "ammo", position, lootEntry.rarity, count)
             else
                 -- Fallback: Log what would be spawned
-                framework.Log("Debug", "Loot drop: %s at %s", lootEntry.item, tostring(position))
+                safeLog("Debug", "Loot drop: %s at %s", lootEntry.item, tostring(position))
             end
         end
     end
@@ -2432,7 +4021,7 @@ function DinoService:ExecuteRoar(dino, def)
                 local distance = (rootPart.Position - dinoPos).Magnitude
                 if distance <= radius then
                     -- Fear effect: slow movement (handled client-side via remote)
-                    framework.Log("Debug", "%s feared %s with roar", dino.name, player.Name)
+                    safeLog("Debug", "%s feared %s with roar", dino.name, player.Name)
                 end
             end
         end
@@ -2486,7 +4075,7 @@ function DinoService:ExecuteCharge(dino, def)
         -- Stun effect handled client-side
     end
 
-    framework.Log("Debug", "%s charged %s for %d damage", dino.name, dino.target.Name, damage)
+    safeLog("Debug", "%s charged %s for %d damage", dino.name, dino.target.Name, damage)
 
     return true
 end
@@ -2525,7 +4114,7 @@ function DinoService:ExecutePounce(dino, def)
         -- Handled client-side
     end
 
-    framework.Log("Debug", "%s pounced on %s for %d damage", dino.name, dino.target.Name, damage)
+    safeLog("Debug", "%s pounced on %s for %d damage", dino.name, dino.target.Name, damage)
 
     return true
 end
@@ -2572,7 +4161,7 @@ function DinoService:ExecuteVenomSpit(dino, def)
 
     -- Blind effect handled client-side via remote
 
-    framework.Log("Debug", "%s spit venom at %s", dino.name, dino.target.Name)
+    safeLog("Debug", "%s spit venom at %s", dino.name, dino.target.Name)
 
     return true
 end
@@ -2624,7 +4213,7 @@ function DinoService:ExecuteTailSwipe(dino, def)
         end
     end
 
-    framework.Log("Debug", "%s tail swipe hit %d players", dino.name, hitCount)
+    safeLog("Debug", "%s tail swipe hit %d players", dino.name, hitCount)
 
     return hitCount > 0
 end
@@ -2661,7 +4250,7 @@ function DinoService:ExecuteDiveBomb(dino, def)
         -- Handled client-side
     end
 
-    framework.Log("Debug", "%s dive bombed %s for %d damage", dino.name, dino.target.Name, damage)
+    safeLog("Debug", "%s dive bombed %s for %d damage", dino.name, dino.target.Name, damage)
 
     return true
 end
@@ -2700,7 +4289,7 @@ function DinoService:ExecuteCamouflage(dino, def)
         end
     end)
 
-    framework.Log("Debug", "%s activated camouflage", dino.name)
+    safeLog("Debug", "%s activated camouflage", dino.name)
 
     return true
 end
@@ -2746,7 +4335,7 @@ function DinoService:ExecuteGroundPound(dino, def)
         end
     end
 
-    framework.Log("Debug", "%s ground pound hit %d players", dino.name, hitCount)
+    safeLog("Debug", "%s ground pound hit %d players", dino.name, hitCount)
 
     return true
 end
@@ -3013,13 +4602,13 @@ end
 function DinoService:SpawnBoss(bossType, position)
     local bossDef = BOSS_DEFINITIONS[bossType]
     if not bossDef then
-        framework.Log("Error", "Unknown boss type: %s", bossType)
+        safeLog("Error", "Unknown boss type: %s", bossType)
         return nil
     end
 
     local baseDef = DINOSAUR_DEFINITIONS[bossDef.baseDino]
     if not baseDef then
-        framework.Log("Error", "Unknown base dinosaur for boss: %s", bossDef.baseDino)
+        safeLog("Error", "Unknown base dinosaur for boss: %s", bossDef.baseDino)
         return nil
     end
 
@@ -3127,7 +4716,7 @@ function DinoService:SpawnBoss(bossType, position)
         })
     end
 
-    framework.Log("Info", "Boss spawned: %s at %s", bossDef.name, tostring(position))
+    safeLog("Info", "Boss spawned: %s at %s", bossDef.name, tostring(position))
 
     return boss
 end
@@ -3262,7 +4851,7 @@ function DinoService:TransitionBossPhase(boss, newPhase)
         })
     end
 
-    framework.Log("Info", "Boss %s entered phase %d", boss.name, newPhase)
+    safeLog("Info", "Boss %s entered phase %d", boss.name, newPhase)
 end
 
 --=============================================================================
@@ -3304,7 +4893,7 @@ end
     Despawn all dinosaurs
 ]]
 function DinoService:DespawnAll()
-    framework.Log("Info", "Despawning all dinosaurs")
+    safeLog("Info", "Despawning all dinosaurs")
 
     for dinoId, dino in pairs(activeDinosaurs) do
         if dino.model then
@@ -3323,7 +4912,7 @@ end
 function DinoService:Shutdown()
     self:StopSpawning()
     self:DespawnAll()
-    framework.Log("Info", "DinoService shut down")
+    safeLog("Info", "DinoService shut down")
 end
 
 --=============================================================================

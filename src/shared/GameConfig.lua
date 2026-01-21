@@ -98,13 +98,13 @@ GameConfig.Modes = {
 
 GameConfig.Storm = {
     enabled = true,
-    damageInterval = 1.0,          -- Seconds between damage ticks (industry standard)
-    warningTime = 30,              -- Seconds warning before zone moves
-    initialRadius = 1500,          -- Starting radius - LARGER than map (map is ~1000 radius)
-    mapRadius = 1000,              -- Actual playable map radius (for reference)
+    damageInterval = 1.0,          -- Seconds between damage ticks
+    warningTime = 10,              -- Seconds warning before zone moves
+    initialRadius = 500,           -- Starting radius (covers full map)
+    mapRadius = 500,               -- Actual playable map radius
 
     -- Grace period - no storm damage at match start
-    gracePeriod = 60,              -- 60 seconds before storm activates (allows looting/positioning)
+    gracePeriod = 30,              -- 30 seconds before storm activates
 
     -- Storm visuals
     stormColor = Color3.fromRGB(100, 50, 150),
@@ -112,87 +112,56 @@ GameConfig.Storm = {
     safeZoneColor = Color3.fromRGB(50, 200, 255),
 
     --[[
-        Storm Phases - Designed for 20-minute match
-        Following Fortnite-style progression:
-        - Early phases: Long delays, slow shrink, low damage (exploration/looting)
-        - Mid phases: Moderate timing, increasing damage (mid-game fights)
-        - Late phases: Fast shrink, high damage (endgame pressure)
+        Storm Phases - GDD Compliant (5 phases, 5-10 minute matches)
 
-        Total time breakdown (~20 minutes):
-        - Grace period: 1 min
-        - Phase 1: 2 min wait + 2 min shrink = 4 min
-        - Phase 2: 2 min wait + 2 min shrink = 4 min
-        - Phase 3: 1.5 min wait + 1.5 min shrink = 3 min
-        - Phase 4: 1 min wait + 1 min shrink = 2 min
-        - Phase 5: 1 min wait + 1 min shrink = 2 min
-        - Phase 6: 30s wait + 1 min shrink = 1.5 min
-        - Phase 7: 0s wait + 45s shrink = 45s
-        - Phase 8: 0s wait + 30s shrink = 30s (final close)
-        Total: ~19 minutes
+        Total time breakdown (~7 minutes):
+        - Grace period: 30s
+        - Phase 1: 30s delay + 20s shrink = 50s
+        - Phase 2: 20s delay + 15s shrink = 35s
+        - Phase 3: 15s delay + 12s shrink = 27s
+        - Phase 4: 10s delay + 10s shrink = 20s
+        - Phase 5: 5s delay + 8s shrink = 13s
+        Total: ~6-7 minutes (within GDD's 5-10 minute target)
     ]]
     phases = {
-        -- Phase 1: First shrink - very forgiving, players still looting
+        -- Phase 1: First shrink - exploration/looting phase
         {
-            delay = 120,           -- 2 minute wait
-            shrinkTime = 120,      -- 2 minute shrink
-            endRadius = 800,       -- Shrink to 800 (still covers most of map)
-            damage = 1,            -- Minimal damage
+            delay = 30,            -- 30 second wait (GDD: 30s)
+            shrinkTime = 20,       -- 20 second shrink (GDD: 20s)
+            endRadius = 200,       -- End at 200 radius (GDD: 200)
+            damage = 1,            -- 1 damage per tick (GDD: 1)
             centerOffset = 0.1,    -- Slight center shift
         },
-        -- Phase 2: Second shrink - moderate pressure
+        -- Phase 2: Second shrink - mid-game begins
         {
-            delay = 120,           -- 2 minute wait
-            shrinkTime = 120,      -- 2 minute shrink
-            endRadius = 500,       -- Medium zone
-            damage = 1,            -- Still low damage
+            delay = 20,            -- 20 second wait (GDD: 20s)
+            shrinkTime = 15,       -- 15 second shrink (GDD: 15s)
+            endRadius = 120,       -- End at 120 radius (GDD: 120)
+            damage = 2,            -- 2 damage per tick (GDD: 2)
             centerOffset = 0.15,
         },
-        -- Phase 3: Mid-game - action picks up
+        -- Phase 3: Mid-game - action intensifies
         {
-            delay = 90,            -- 1.5 minute wait
-            shrinkTime = 90,       -- 1.5 minute shrink
-            endRadius = 300,       -- Getting smaller
-            damage = 2,            -- Increased damage
+            delay = 15,            -- 15 second wait (GDD: 15s)
+            shrinkTime = 12,       -- 12 second shrink (GDD: 12s)
+            endRadius = 60,        -- End at 60 radius (GDD: 60)
+            damage = 4,            -- 4 damage per tick (GDD: 4)
             centerOffset = 0.2,
         },
-        -- Phase 4: Late mid-game - pressure increases
+        -- Phase 4: Endgame - high pressure
         {
-            delay = 60,            -- 1 minute wait
-            shrinkTime = 60,       -- 1 minute shrink
-            endRadius = 150,       -- Small zone
-            damage = 5,            -- Significant damage
-            centerOffset = 0.2,
-        },
-        -- Phase 5: Endgame begins
-        {
-            delay = 60,            -- 1 minute wait
-            shrinkTime = 60,       -- 1 minute shrink
-            endRadius = 75,        -- Very small
-            damage = 8,            -- High damage
+            delay = 10,            -- 10 second wait (GDD: 10s)
+            shrinkTime = 10,       -- 10 second shrink (GDD: 10s)
+            endRadius = 25,        -- End at 25 radius (GDD: 25)
+            damage = 8,            -- 8 damage per tick (GDD: 8)
             centerOffset = 0.15,
         },
-        -- Phase 6: Endgame pressure
+        -- Phase 5: Final close - lethal zone
         {
-            delay = 30,            -- 30 second wait
-            shrinkTime = 60,       -- 1 minute shrink
-            endRadius = 30,        -- Tiny zone
-            damage = 10,           -- Very high damage
-            centerOffset = 0.1,
-        },
-        -- Phase 7: Final phases - no wait time (Fortnite style)
-        {
-            delay = 0,             -- Immediate
-            shrinkTime = 45,       -- 45 second shrink
-            endRadius = 10,        -- Almost closed
-            damage = 10,
-            centerOffset = 0.05,
-        },
-        -- Phase 8: Complete close
-        {
-            delay = 0,             -- Immediate
-            shrinkTime = 30,       -- 30 second final close
-            endRadius = 0,         -- Complete close
-            damage = 10,
+            delay = 5,             -- 5 second wait (GDD: 5s)
+            shrinkTime = 8,        -- 8 second shrink (GDD: 8s)
+            endRadius = 0,         -- Complete close (GDD: 0)
+            damage = 16,           -- 16 damage per tick (GDD: 16)
             centerOffset = 0,
         },
     },
@@ -206,10 +175,10 @@ GameConfig.Storm = {
 
 GameConfig.Dinosaurs = {
     enabled = true,
-    maxActive = 15,                -- Max dinosaurs at once
-    spawnInterval = 30,            -- Seconds between spawn waves
-    aggressionRadius = 80,         -- Distance to detect players
-    deaggroRadius = 120,           -- Distance to lose aggro
+    maxActive = 50,                -- Max dinosaurs at once (increased for more action)
+    spawnInterval = 15,            -- Seconds between spawn waves (faster spawning)
+    aggressionRadius = 30,         -- Distance to detect players (reduced for tighter engagement)
+    deaggroRadius = 50,            -- Distance to lose aggro (reduced to match aggro)
     pathfindingTimeout = 5,        -- Max seconds for pathfinding
 
     -- AI update rate
@@ -604,6 +573,17 @@ GameConfig.Loot = {
         miniShield = 25,
         shield = 50,
         bigShield = 100,
+    },
+
+    -- Healing item use times (GDD compliant)
+    -- Time in seconds to channel/use the item before it takes effect
+    healingUseTimes = {
+        bandage = 2,        -- 2s
+        medkit = 5,         -- 5s
+        healthKit = 7,      -- 7s (called "Health Kit" in GDD)
+        miniShield = 2,     -- 2s (called "Mini Shield" in GDD)
+        shield = 4,         -- 4s (called "Shield Potion" in GDD)
+        bigShield = 6,      -- 6s (called "Big Shield" in GDD)
     },
 }
 

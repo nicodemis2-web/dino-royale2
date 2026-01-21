@@ -68,6 +68,11 @@ Remotes.Events = {
     "BossDied",
     "BossAbility",
 
+    -- Dragon Events
+    "DragonApproaching",     -- Dragon raid starting warning
+    "DragonAttack",          -- Dragon attack notification
+    "DragonDeparted",        -- Dragon has left the island
+
     -- Map Events
     "MapEventStarted",
     "MapEventEnded",
@@ -79,6 +84,8 @@ Remotes.Events = {
     "InventoryUpdate",
     "AmmoUpdate",
     "ItemConsumed",
+    "HealingChannelStarted",      -- Player started channeling a heal
+    "HealingChannelInterrupted",  -- Healing was interrupted (damage, movement, etc.)
 
     -- Loot
     "LootSpawned",
