@@ -567,97 +567,93 @@ local EVENT_DEFINITIONS = {
 
     @param x number - X coordinate
     @param z number - Z coordinate
-    @return number - Y coordinate of ground level, or 0 if no ground found
+    @return number - Y coordinate of ground level
 ]]
 local function GetTerrainHeight(x, z)
-    local rayOrigin = Vector3.new(x, 500, z)
-    local rayDirection = Vector3.new(0, -1000, 0)
-
-    -- Build exclusion list to find actual terrain, not placed objects
-    local excludeList = {}
-    local poisFolder = workspace:FindFirstChild("POIs")
-    local floraFolder = workspace:FindFirstChild("Flora")
-    local decorFolder = workspace:FindFirstChild("Decorations")
-    local poiBldgsFolder = workspace:FindFirstChild("POIBuildings")
-    local dinoFolder = workspace:FindFirstChild("Dinosaurs")
-    local groundLoot = workspace:FindFirstChild("GroundLoot")
-    local lobbyPlatform = workspace:FindFirstChild("LobbyPlatform")
-    local chests = workspace:FindFirstChild("Chests")
-    local biomes = workspace:FindFirstChild("Biomes")
-
-    if poisFolder then table.insert(excludeList, poisFolder) end
-    if floraFolder then table.insert(excludeList, floraFolder) end
-    if decorFolder then table.insert(excludeList, decorFolder) end
-    if poiBldgsFolder then table.insert(excludeList, poiBldgsFolder) end
-    if dinoFolder then table.insert(excludeList, dinoFolder) end
-    if groundLoot then table.insert(excludeList, groundLoot) end
-    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
-    if chests then table.insert(excludeList, chests) end
-    if biomes then table.insert(excludeList, biomes) end
-
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = excludeList
-    raycastParams.IgnoreWater = true  -- Find solid ground, not water surface
-
-    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-
-    if result then
-        -- Only accept if we hit actual Terrain, not a random Part
-        if result.Instance and result.Instance:IsA("Terrain") then
-            return result.Position.Y
-        end
-        -- If hit something else, it's a part we didn't exclude - skip it
-    end
-
-    -- FALLBACK: Read terrain voxels directly
-    -- This is more reliable for procedurally generated terrain
     local terrain = workspace:FindFirstChildOfClass("Terrain")
+
+    -- METHOD 1: Direct raycast against terrain only
     if terrain then
-        local success, voxelData = pcall(function()
-            return terrain:ReadVoxels(
-                Region3.new(
-                    Vector3.new(x - 2, -10, z - 2),
-                    Vector3.new(x + 2, 300, z + 2)
-                ):ExpandToGrid(4),
-                4
-            )
-        end)
+        local rayOrigin = Vector3.new(x, 500, z)
+        local rayDirection = Vector3.new(0, -600, 0)
 
-        if success and voxelData and #voxelData > 0 then
-            -- ReadVoxels returns materials[x][y][z]
-            -- We need to sample at the center of our region
-            local xSize = #voxelData
-            local ySize = #voxelData[1]
-            local zSize = #voxelData[1][1]
-            local midX = math.ceil(xSize / 2)
-            local midZ = math.ceil(zSize / 2)
-
-            -- Search from top to bottom at the center X,Z position
-            for y = ySize, 1, -1 do
-                local mat = voxelData[midX][y][midZ]
-                if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
-                    -- Voxel Y index to world Y: region starts at -10, each voxel is 4 studs
-                    return -10 + (y - 1) * 4
-                end
+        -- Exclude ALL workspace children except Terrain
+        local excludeList = {}
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child ~= terrain then
+                table.insert(excludeList, child)
             end
         end
+
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        raycastParams.FilterDescendantsInstances = excludeList
+        raycastParams.IgnoreWater = true
+
+        local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        if result and result.Position then
+            return result.Position.Y
+        end
     end
 
-    -- FINAL FALLBACK: Calculate expected height using island generation formula
-    -- This matches TerrainSetup:GenerateIslandTerrain() logic
-    local islandRadius = 900  -- MAP_CONFIG.islandRadius
+    -- METHOD 2: Read terrain voxels directly
+    if terrain then
+        local success, height = pcall(function()
+            -- Sample a column of voxels at this X,Z position
+            local minY = -20
+            local maxY = 200
+            local resolution = 4
+
+            local region = Region3.new(
+                Vector3.new(x - resolution, minY, z - resolution),
+                Vector3.new(x + resolution, maxY, z + resolution)
+            ):ExpandToGrid(resolution)
+
+            local materials = terrain:ReadVoxels(region, resolution)
+
+            if materials and #materials > 0 and #materials[1] > 0 and #materials[1][1] > 0 then
+                local midX = math.ceil(#materials / 2)
+                local midZ = math.ceil(#materials[1][1] / 2)
+
+                -- Search from top to bottom for first solid voxel
+                for y = #materials[1], 1, -1 do
+                    local mat = materials[midX][y][midZ]
+                    if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                        -- Convert voxel Y index to world Y
+                        -- Region starts at minY, each voxel is resolution studs
+                        local worldY = minY + (y - 0.5) * resolution
+                        return worldY
+                    end
+                end
+            end
+            return nil
+        end)
+
+        if success and height then
+            return height
+        end
+    end
+
+    -- METHOD 3: Calculate using terrain generation formula
+    -- This matches TerrainSetup:GenerateIslandTerrain() exactly
+    local islandRadius = 900
+    local baseHeight = 5
+    local maxTerrainHeight = 50
     local distFromCenter = math.sqrt(x * x + z * z)
 
     if distFromCenter < islandRadius then
         local normalizedDist = distFromCenter / islandRadius
         local heightFalloff = 1 - (normalizedDist ^ 2)
+
+        -- Same noise parameters as TerrainSetup
         local noise = math.noise(x / 200, z / 200) * 0.5 + 0.5
         local detailNoise = math.noise(x / 50, z / 50) * 0.3
-        return 5 + (noise + detailNoise) * 50 * heightFalloff
+
+        local calculatedHeight = baseHeight + (noise + detailNoise) * maxTerrainHeight * heightFalloff
+        return math.max(baseHeight, calculatedHeight)
     end
 
-    return 5  -- Base terrain height default
+    return baseHeight
 end
 
 --==============================================================================

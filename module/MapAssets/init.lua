@@ -70,81 +70,82 @@ local Workspace = game:GetService("Workspace")
     @return number - Terrain height (Y value) at the position
 ]]
 local function GetTerrainHeight(x, z)
-    local rayOrigin = Vector3.new(x, 1000, z)  -- Start high above
-    local rayDirection = Vector3.new(0, -2000, 0)  -- Cast downward
-
-    -- Build exclusion list - exclude all spawned asset folders
-    local excludeList = {}
-
-    -- Exclude our own folders
-    if folders.buildings and folders.buildings.Parent then
-        table.insert(excludeList, folders.buildings)
-    end
-    if folders.vegetation and folders.vegetation.Parent then
-        table.insert(excludeList, folders.vegetation)
-    end
-    if folders.dinosaurs and folders.dinosaurs.Parent then
-        table.insert(excludeList, folders.dinosaurs)
-    end
-    if folders.props and folders.props.Parent then
-        table.insert(excludeList, folders.props)
-    end
-
-    -- Also exclude common workspace folders that might contain non-terrain objects
-    local poiFolder = Workspace:FindFirstChild("POIs")
-    local floraFolder = Workspace:FindFirstChild("Flora")
-    local decorFolder = Workspace:FindFirstChild("Decorations")
-    local lobbyPlatform = Workspace:FindFirstChild("LobbyPlatform")
-    local groundLoot = Workspace:FindFirstChild("GroundLoot")
-
-    if poiFolder then table.insert(excludeList, poiFolder) end
-    if floraFolder then table.insert(excludeList, floraFolder) end
-    if decorFolder then table.insert(excludeList, decorFolder) end
-    if lobbyPlatform then table.insert(excludeList, lobbyPlatform) end
-    if groundLoot then table.insert(excludeList, groundLoot) end
-
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = excludeList
-    raycastParams.IgnoreWater = true
-
-    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-
-    if result then
-        return result.Position.Y
-    end
-
-    -- Fallback: try to read terrain voxels directly
-    -- ReadVoxels returns: materials[x][y][z], occupancies[x][y][z]
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
+
+    -- METHOD 1: Direct raycast excluding all non-terrain objects
     if terrain then
-        local success, materials, occupancies = pcall(function()
-            local region = Region3.new(
-                Vector3.new(x - 2, 0, z - 2),
-                Vector3.new(x + 2, 200, z + 2)
-            ):ExpandToGrid(4)
-            return terrain:ReadVoxels(region, 4)
-        end)
+        local rayOrigin = Vector3.new(x, 500, z)
+        local rayDirection = Vector3.new(0, -600, 0)
 
-        if success and materials and #materials > 0 then
-            local xSize = #materials
-            local ySize = #materials[1]
-            local zSize = #materials[1][1]
-            local midX = math.ceil(xSize / 2)
-            local midZ = math.ceil(zSize / 2)
-
-            -- Find highest non-air voxel at center of sample
-            for y = ySize, 1, -1 do
-                local mat = materials[midX][y][midZ]
-                if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
-                    return (y - 1) * 4  -- Convert voxel index to world Y
-                end
+        -- Exclude ALL workspace children except Terrain
+        local excludeList = {}
+        for _, child in ipairs(Workspace:GetChildren()) do
+            if child ~= terrain then
+                table.insert(excludeList, child)
             end
+        end
+
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+        raycastParams.FilterDescendantsInstances = excludeList
+        raycastParams.IgnoreWater = true
+
+        local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        if result and result.Position then
+            return result.Position.Y
         end
     end
 
-    -- Final fallback to base terrain height
-    return 5
+    -- METHOD 2: Read terrain voxels directly
+    if terrain then
+        local success, height = pcall(function()
+            local minY = -20
+            local maxY = 200
+            local resolution = 4
+
+            local region = Region3.new(
+                Vector3.new(x - resolution, minY, z - resolution),
+                Vector3.new(x + resolution, maxY, z + resolution)
+            ):ExpandToGrid(resolution)
+
+            local materials = terrain:ReadVoxels(region, resolution)
+
+            if materials and #materials > 0 and #materials[1] > 0 and #materials[1][1] > 0 then
+                local midX = math.ceil(#materials / 2)
+                local midZ = math.ceil(#materials[1][1] / 2)
+
+                -- Find highest non-air voxel
+                for y = #materials[1], 1, -1 do
+                    local mat = materials[midX][y][midZ]
+                    if mat ~= Enum.Material.Air and mat ~= Enum.Material.Water then
+                        -- Convert voxel index to world Y
+                        return minY + (y - 0.5) * resolution
+                    end
+                end
+            end
+            return nil
+        end)
+
+        if success and height then
+            return height
+        end
+    end
+
+    -- METHOD 3: Calculate using terrain generation formula
+    local islandRadius = 900
+    local baseHeight = 5
+    local maxTerrainHeight = 50
+    local distFromCenter = math.sqrt(x * x + z * z)
+
+    if distFromCenter < islandRadius then
+        local normalizedDist = distFromCenter / islandRadius
+        local heightFalloff = 1 - (normalizedDist ^ 2)
+        local noise = math.noise(x / 200, z / 200) * 0.5 + 0.5
+        local detailNoise = math.noise(x / 50, z / 50) * 0.3
+        return math.max(baseHeight, baseHeight + (noise + detailNoise) * maxTerrainHeight * heightFalloff)
+    end
+
+    return baseHeight
 end
 
 --=============================================================================
