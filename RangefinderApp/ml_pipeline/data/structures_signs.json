@@ -1,0 +1,302 @@
+{
+  "metadata": {
+    "source": "MUTCD, ICC Building Codes, ANSI Standards",
+    "description": "Standard structure and sign dimensions for distance estimation",
+    "units": "meters",
+    "last_updated": "2024-01-01"
+  },
+  "traffic_signs": {
+    "stop_sign": {
+      "description": "Standard octagonal stop sign (R1-1)",
+      "type": "regulatory",
+      "width": 0.762,
+      "height": 0.762,
+      "standard": "MUTCD R1-1",
+      "variability": 0.02,
+      "reliability": 0.98,
+      "notes": "30 inches standard; 36 inches on high-speed roads"
+    },
+    "yield_sign": {
+      "description": "Standard yield sign (R1-2)",
+      "type": "regulatory",
+      "width": 0.914,
+      "height": 0.914,
+      "standard": "MUTCD R1-2",
+      "variability": 0.02,
+      "reliability": 0.95,
+      "notes": "Equilateral triangle, 36 inches per side"
+    },
+    "speed_limit_sign": {
+      "description": "Standard speed limit sign (R2-1)",
+      "type": "regulatory",
+      "width": 0.610,
+      "height": 0.762,
+      "standard": "MUTCD R2-1",
+      "variability": 0.05,
+      "reliability": 0.95,
+      "notes": "24x30 inches standard"
+    },
+    "warning_sign_diamond": {
+      "description": "Standard diamond warning sign (W series)",
+      "type": "warning",
+      "width": 0.762,
+      "height": 0.762,
+      "standard": "MUTCD W-series",
+      "variability": 0.05,
+      "reliability": 0.92,
+      "notes": "30x30 inches standard; rotated square"
+    },
+    "street_name_sign": {
+      "description": "Standard street name sign",
+      "type": "guide",
+      "height": 0.152,
+      "variability": 0.10,
+      "reliability": 0.85,
+      "notes": "Width varies; height typically 6 inches"
+    },
+    "interstate_shield": {
+      "description": "Interstate highway shield",
+      "type": "guide",
+      "width": 0.914,
+      "height": 0.914,
+      "variability": 0.05,
+      "reliability": 0.90,
+      "notes": "36 inches standard"
+    },
+    "mile_marker": {
+      "description": "Highway mile marker",
+      "type": "guide",
+      "width": 0.152,
+      "height": 0.457,
+      "variability": 0.10,
+      "reliability": 0.85,
+      "notes": "6x18 inches typical"
+    }
+  },
+  "building_features": {
+    "door_residential": {
+      "description": "Standard residential door",
+      "height": 2.032,
+      "width": 0.914,
+      "standard": "ANSI/ICC",
+      "variability": 0.03,
+      "reliability": 0.95,
+      "notes": "6'8\" x 36\" (80\" x 36\") US standard"
+    },
+    "door_commercial": {
+      "description": "Commercial door (ADA compliant)",
+      "height": 2.134,
+      "width": 0.914,
+      "standard": "ADA",
+      "variability": 0.05,
+      "reliability": 0.92,
+      "notes": "84\" minimum clear height"
+    },
+    "garage_door_single": {
+      "description": "Single car garage door",
+      "height": 2.134,
+      "width": 2.438,
+      "variability": 0.05,
+      "reliability": 0.90,
+      "notes": "8' x 7' standard"
+    },
+    "garage_door_double": {
+      "description": "Double car garage door",
+      "height": 2.134,
+      "width": 4.877,
+      "variability": 0.05,
+      "reliability": 0.88,
+      "notes": "16' x 7' standard"
+    },
+    "window_standard": {
+      "description": "Standard residential window",
+      "height": {
+        "mean": 1.219,
+        "std": 0.25,
+        "min": 0.762,
+        "max": 1.829
+      },
+      "width": {
+        "mean": 0.914,
+        "std": 0.20,
+        "min": 0.610,
+        "max": 1.524
+      },
+      "variability": 0.25,
+      "reliability": 0.65,
+      "notes": "Highly variable; common sizes 36x48, 24x36"
+    },
+    "sliding_glass_door": {
+      "description": "Sliding glass patio door",
+      "height": 2.032,
+      "width": 1.829,
+      "variability": 0.08,
+      "reliability": 0.85,
+      "notes": "6' or 8' wide typical"
+    },
+    "story_height": {
+      "description": "Building floor-to-floor height",
+      "residential": {
+        "height": 2.743,
+        "variability": 0.10
+      },
+      "commercial": {
+        "height": 3.658,
+        "variability": 0.15
+      },
+      "reliability": 0.75,
+      "notes": "Residential ~9ft, commercial ~12ft"
+    },
+    "ceiling_height": {
+      "description": "Interior ceiling height",
+      "standard": {
+        "height": 2.438,
+        "variability": 0.08
+      },
+      "notes": "8ft standard residential"
+    }
+  },
+  "infrastructure": {
+    "fire_hydrant": {
+      "description": "Standard fire hydrant",
+      "height": {
+        "mean": 0.760,
+        "std": 0.10,
+        "min": 0.610,
+        "max": 0.914
+      },
+      "variability": 0.12,
+      "reliability": 0.85,
+      "notes": "Height above ground varies; 24-36 inches typical"
+    },
+    "traffic_light": {
+      "description": "Standard traffic signal head",
+      "height": 1.067,
+      "width": 0.356,
+      "variability": 0.05,
+      "reliability": 0.90,
+      "notes": "3-light vertical: 42\" x 14\""
+    },
+    "utility_pole": {
+      "description": "Standard wooden utility pole",
+      "height_above_ground": {
+        "mean": 10.7,
+        "std": 2.0,
+        "min": 7.6,
+        "max": 15.2
+      },
+      "diameter_base": {
+        "mean": 0.30,
+        "std": 0.05
+      },
+      "variability": 0.18,
+      "reliability": 0.70,
+      "notes": "35-40 ft typical for distribution; highly variable"
+    },
+    "street_lamp": {
+      "description": "Street light pole height",
+      "height": {
+        "residential": {
+          "mean": 6.0,
+          "std": 1.0
+        },
+        "arterial": {
+          "mean": 9.0,
+          "std": 1.5
+        }
+      },
+      "variability": 0.15,
+      "reliability": 0.70
+    },
+    "mailbox_rural": {
+      "description": "Standard rural mailbox",
+      "height": 1.067,
+      "width": 0.203,
+      "depth": 0.483,
+      "standard": "USPS",
+      "variability": 0.05,
+      "reliability": 0.88,
+      "notes": "42\" post height standard"
+    },
+    "parking_meter": {
+      "description": "Parking meter",
+      "height": {
+        "mean": 1.20,
+        "std": 0.15
+      },
+      "variability": 0.12,
+      "reliability": 0.80
+    },
+    "crosswalk_stripe": {
+      "description": "Standard crosswalk stripe",
+      "width": 0.305,
+      "length": 3.0,
+      "standard": "MUTCD",
+      "variability": 0.05,
+      "reliability": 0.85,
+      "notes": "12-24 inch width, 6-10 ft length typical"
+    },
+    "lane_width": {
+      "description": "Standard road lane width",
+      "width": {
+        "urban": 3.35,
+        "highway": 3.66
+      },
+      "standard": "AASHTO",
+      "variability": 0.08,
+      "reliability": 0.82,
+      "notes": "11-12 ft standard"
+    }
+  },
+  "sports_equipment": {
+    "basketball_hoop": {
+      "description": "Basketball rim height",
+      "height": 3.048,
+      "rim_diameter": 0.457,
+      "standard": "NBA/NCAA",
+      "variability": 0.01,
+      "reliability": 0.98,
+      "notes": "10 ft standard; 18\" rim diameter"
+    },
+    "soccer_goal": {
+      "description": "Regulation soccer goal",
+      "height": 2.44,
+      "width": 7.32,
+      "standard": "FIFA",
+      "variability": 0.02,
+      "reliability": 0.95,
+      "notes": "8 ft x 24 ft"
+    },
+    "football_goalpost": {
+      "description": "Football goalpost",
+      "crossbar_height": 3.048,
+      "post_width": 5.64,
+      "standard": "NFL",
+      "variability": 0.02,
+      "reliability": 0.92,
+      "notes": "10 ft crossbar, 18.5 ft wide (NFL)"
+    },
+    "tennis_net": {
+      "description": "Tennis net height",
+      "center_height": 0.914,
+      "post_height": 1.07,
+      "standard": "ITF",
+      "variability": 0.02,
+      "reliability": 0.95
+    },
+    "golf_flag": {
+      "description": "Golf flagstick",
+      "height": 2.13,
+      "standard": "USGA",
+      "variability": 0.03,
+      "reliability": 0.92,
+      "notes": "7 ft standard"
+    }
+  },
+  "reliability_ranking": {
+    "highest": ["stop_sign", "door_residential", "basketball_hoop"],
+    "high": ["yield_sign", "speed_limit_sign", "garage_door_single", "soccer_goal"],
+    "medium": ["fire_hydrant", "traffic_light", "mailbox_rural"],
+    "lower": ["window_standard", "utility_pole", "street_lamp"]
+  }
+}

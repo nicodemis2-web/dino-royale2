@@ -1,0 +1,75 @@
+# SniperScope Training Configuration
+# For use with Ultralytics YOLO
+
+# Model Configuration
+model: yolo11s.pt        # Base model (small for balance of speed/accuracy)
+imgsz: 1280              # Higher resolution for small object detection
+
+# Training Parameters
+epochs: 150
+batch: 16                # Adjust based on GPU memory (8 for 8GB, 16 for 16GB+)
+patience: 30             # Early stopping patience
+workers: 8               # DataLoader workers
+
+# Optimizer
+optimizer: AdamW
+lr0: 0.001               # Initial learning rate
+lrf: 0.01                # Final learning rate factor (lr0 * lrf)
+momentum: 0.937
+weight_decay: 0.0005
+warmup_epochs: 3
+warmup_momentum: 0.8
+warmup_bias_lr: 0.1
+
+# Loss Weights
+box: 7.5                 # Box loss weight
+cls: 0.5                 # Classification loss weight
+dfl: 1.5                 # Distribution focal loss weight
+
+# Augmentation (YOLO built-in)
+# Note: Keep geometric augmentations minimal to preserve size relationships
+hsv_h: 0.015             # Hue augmentation
+hsv_s: 0.7               # Saturation augmentation
+hsv_v: 0.4               # Value augmentation
+degrees: 5.0             # Rotation (small to preserve geometry)
+translate: 0.1           # Translation
+scale: 0.3               # Scale variation
+shear: 2.0               # Shear
+perspective: 0.0         # Perspective (keep 0 for ranging)
+flipud: 0.0              # No vertical flip
+fliplr: 0.5              # Horizontal flip OK
+mosaic: 0.5              # Reduced mosaic (can hurt small objects)
+mixup: 0.0               # No mixup (alters apparent sizes)
+copy_paste: 0.0          # No copy-paste
+
+# Hardware
+device: 0                # GPU device (0 for first GPU, 'cpu' for CPU)
+amp: true                # Automatic mixed precision
+
+# Project/Logging
+project: sniperscope
+name: detector_v1
+exist_ok: true
+save: true
+save_period: 10          # Save checkpoint every N epochs
+plots: true
+
+# Validation
+val: true
+split: val
+conf: 0.25               # Confidence threshold for validation
+iou: 0.5                 # IoU threshold for NMS
+
+# Export settings (for CoreML conversion)
+export:
+  format: coreml
+  half: true             # FP16 quantization
+  nms: true              # Include NMS in model
+  imgsz: 1280
+
+# Small object detection optimizations
+# These are applied during training
+small_object_settings:
+  multi_scale: true      # Multi-scale training
+  anchor_t: 4.0          # Anchor threshold
+  fl_gamma: 1.5          # Focal loss gamma

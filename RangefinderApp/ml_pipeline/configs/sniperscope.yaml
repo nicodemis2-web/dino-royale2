@@ -1,0 +1,91 @@
+# SniperScope Dataset Configuration
+# For use with Ultralytics YOLO training
+
+# Dataset paths (relative to ml_pipeline directory)
+path: ./datasets/merged
+train: images/train
+val: images/val
+test: images/test
+
+# Number of classes
+nc: 13
+
+# Class names
+names:
+  0: person
+  1: person_head
+  2: car
+  3: truck
+  4: suv
+  5: deer
+  6: elk
+  7: wild_boar
+  8: coyote
+  9: door
+  10: window
+  11: stop_sign
+  12: speed_limit_sign
+
+# Class descriptions for documentation
+descriptions:
+  person: "Standing adult human (avg 1.70m height)"
+  person_head: "Human head only (avg 0.23m height)"
+  car: "Sedan or compact car (avg 1.45m height)"
+  truck: "Pickup truck or van (avg 1.90m height)"
+  suv: "SUV or crossover vehicle (avg 1.75m height)"
+  deer: "White-tailed deer (avg 0.95m shoulder height)"
+  elk: "Rocky Mountain elk (avg 1.50m shoulder height)"
+  wild_boar: "Wild boar/feral hog (avg 0.75m height)"
+  coyote: "Coyote (avg 0.58m shoulder height)"
+  door: "Standard door (2.03m height)"
+  window: "Residential window (avg 1.20m height)"
+  stop_sign: "MUTCD stop sign (0.762m width)"
+  speed_limit_sign: "MUTCD speed limit sign (0.762m height)"
+
+# Known sizes in meters (for ranging calculations)
+known_sizes:
+  person: 1.70
+  person_head: 0.23
+  car: 1.45
+  truck: 1.90
+  suv: 1.75
+  deer: 0.95
+  elk: 1.50
+  wild_boar: 0.75
+  coyote: 0.58
+  door: 2.03
+  window: 1.20
+  stop_sign: 0.762
+  speed_limit_sign: 0.762
+
+# Size variability (0-1, for confidence calculation)
+size_variability:
+  person: 0.10
+  person_head: 0.08
+  car: 0.10
+  truck: 0.12
+  suv: 0.12
+  deer: 0.12
+  elk: 0.10
+  wild_boar: 0.25
+  coyote: 0.12
+  door: 0.03
+  window: 0.25
+  stop_sign: 0.02
+  speed_limit_sign: 0.05
+
+# Reliability weights for ranging (0-1)
+reliability_weights:
+  person: 0.90
+  person_head: 0.85
+  car: 0.85
+  truck: 0.80
+  suv: 0.82
+  deer: 0.85
+  elk: 0.88
+  wild_boar: 0.65
+  coyote: 0.70
+  door: 0.95
+  window: 0.65
+  stop_sign: 0.98
+  speed_limit_sign: 0.95

@@ -1,0 +1,360 @@
+{
+  "metadata": {
+    "source": "US Car Models Database, EPA, Manufacturer Specifications",
+    "description": "Vehicle dimensions for distance estimation",
+    "units": "meters",
+    "last_updated": "2024-01-01"
+  },
+  "categories": {
+    "sedan": {
+      "description": "Standard 4-door sedan/compact car",
+      "height": {
+        "mean": 1.45,
+        "std": 0.08,
+        "min": 1.35,
+        "max": 1.55
+      },
+      "width": {
+        "mean": 1.82,
+        "std": 0.06,
+        "min": 1.70,
+        "max": 1.95
+      },
+      "length": {
+        "mean": 4.70,
+        "std": 0.30,
+        "min": 4.20,
+        "max": 5.20
+      },
+      "wheel_diameter": {
+        "mean": 0.66,
+        "std": 0.04,
+        "min": 0.58,
+        "max": 0.74
+      },
+      "examples": ["Toyota Camry", "Honda Accord", "Ford Fusion"]
+    },
+    "compact": {
+      "description": "Small compact car/hatchback",
+      "height": {
+        "mean": 1.45,
+        "std": 0.06,
+        "min": 1.38,
+        "max": 1.55
+      },
+      "width": {
+        "mean": 1.76,
+        "std": 0.05,
+        "min": 1.68,
+        "max": 1.85
+      },
+      "length": {
+        "mean": 4.30,
+        "std": 0.20,
+        "min": 4.00,
+        "max": 4.60
+      },
+      "wheel_diameter": {
+        "mean": 0.63,
+        "std": 0.03,
+        "min": 0.56,
+        "max": 0.69
+      },
+      "examples": ["Honda Civic", "Toyota Corolla", "Mazda 3"]
+    },
+    "suv": {
+      "description": "Sport Utility Vehicle / Crossover",
+      "height": {
+        "mean": 1.75,
+        "std": 0.10,
+        "min": 1.60,
+        "max": 1.95
+      },
+      "width": {
+        "mean": 1.90,
+        "std": 0.08,
+        "min": 1.78,
+        "max": 2.05
+      },
+      "length": {
+        "mean": 4.80,
+        "std": 0.35,
+        "min": 4.30,
+        "max": 5.50
+      },
+      "wheel_diameter": {
+        "mean": 0.74,
+        "std": 0.05,
+        "min": 0.66,
+        "max": 0.84
+      },
+      "examples": ["Toyota RAV4", "Honda CR-V", "Ford Explorer"]
+    },
+    "pickup_truck": {
+      "description": "Full-size and mid-size pickup trucks",
+      "height": {
+        "mean": 1.90,
+        "std": 0.10,
+        "min": 1.75,
+        "max": 2.05
+      },
+      "width": {
+        "mean": 2.00,
+        "std": 0.08,
+        "min": 1.85,
+        "max": 2.15
+      },
+      "length": {
+        "mean": 5.80,
+        "std": 0.40,
+        "min": 5.20,
+        "max": 6.40
+      },
+      "wheel_diameter": {
+        "mean": 0.80,
+        "std": 0.06,
+        "min": 0.71,
+        "max": 0.91
+      },
+      "bed_height": {
+        "mean": 0.55,
+        "std": 0.05,
+        "min": 0.48,
+        "max": 0.62
+      },
+      "examples": ["Ford F-150", "Chevrolet Silverado", "Toyota Tundra"]
+    },
+    "minivan": {
+      "description": "Passenger minivan",
+      "height": {
+        "mean": 1.78,
+        "std": 0.06,
+        "min": 1.70,
+        "max": 1.88
+      },
+      "width": {
+        "mean": 1.98,
+        "std": 0.05,
+        "min": 1.90,
+        "max": 2.05
+      },
+      "length": {
+        "mean": 5.15,
+        "std": 0.15,
+        "min": 4.90,
+        "max": 5.40
+      },
+      "wheel_diameter": {
+        "mean": 0.69,
+        "std": 0.04,
+        "min": 0.63,
+        "max": 0.76
+      },
+      "examples": ["Honda Odyssey", "Toyota Sienna", "Chrysler Pacifica"]
+    },
+    "van_cargo": {
+      "description": "Cargo/commercial van",
+      "height": {
+        "mean": 2.10,
+        "std": 0.20,
+        "min": 1.85,
+        "max": 2.80
+      },
+      "width": {
+        "mean": 2.00,
+        "std": 0.10,
+        "min": 1.85,
+        "max": 2.15
+      },
+      "length": {
+        "mean": 5.50,
+        "std": 0.50,
+        "min": 4.80,
+        "max": 6.70
+      },
+      "wheel_diameter": {
+        "mean": 0.69,
+        "std": 0.04,
+        "min": 0.63,
+        "max": 0.76
+      },
+      "examples": ["Ford Transit", "Mercedes Sprinter", "Ram ProMaster"]
+    },
+    "motorcycle": {
+      "description": "Standard motorcycle",
+      "height": {
+        "mean": 1.15,
+        "std": 0.10,
+        "min": 1.00,
+        "max": 1.40
+      },
+      "width": {
+        "mean": 0.85,
+        "std": 0.10,
+        "min": 0.70,
+        "max": 1.00
+      },
+      "length": {
+        "mean": 2.20,
+        "std": 0.20,
+        "min": 1.90,
+        "max": 2.60
+      },
+      "wheel_diameter": {
+        "mean": 0.63,
+        "std": 0.05,
+        "min": 0.53,
+        "max": 0.71
+      },
+      "examples": ["Harley-Davidson", "Honda Gold Wing", "Kawasaki Ninja"]
+    },
+    "semi_truck_cab": {
+      "description": "Semi-truck/tractor cab only",
+      "height": {
+        "mean": 3.80,
+        "std": 0.20,
+        "min": 3.50,
+        "max": 4.20
+      },
+      "width": {
+        "mean": 2.55,
+        "std": 0.05,
+        "min": 2.45,
+        "max": 2.65
+      },
+      "length": {
+        "mean": 6.50,
+        "std": 0.50,
+        "min": 5.80,
+        "max": 7.20
+      },
+      "wheel_diameter": {
+        "mean": 1.05,
+        "std": 0.05,
+        "min": 0.97,
+        "max": 1.12
+      },
+      "examples": ["Peterbilt", "Kenworth", "Freightliner"]
+    },
+    "bus": {
+      "description": "Standard transit/school bus",
+      "height": {
+        "mean": 3.20,
+        "std": 0.30,
+        "min": 2.80,
+        "max": 3.80
+      },
+      "width": {
+        "mean": 2.55,
+        "std": 0.10,
+        "min": 2.40,
+        "max": 2.70
+      },
+      "length": {
+        "mean": 12.00,
+        "std": 2.00,
+        "min": 7.00,
+        "max": 18.00
+      },
+      "wheel_diameter": {
+        "mean": 1.00,
+        "std": 0.08,
+        "min": 0.85,
+        "max": 1.12
+      },
+      "examples": ["School Bus", "City Transit Bus", "Coach Bus"]
+    },
+    "atv": {
+      "description": "All-terrain vehicle / quad",
+      "height": {
+        "mean": 1.20,
+        "std": 0.10,
+        "min": 1.05,
+        "max": 1.40
+      },
+      "width": {
+        "mean": 1.20,
+        "std": 0.10,
+        "min": 1.05,
+        "max": 1.40
+      },
+      "length": {
+        "mean": 2.00,
+        "std": 0.15,
+        "min": 1.75,
+        "max": 2.30
+      },
+      "wheel_diameter": {
+        "mean": 0.63,
+        "std": 0.05,
+        "min": 0.55,
+        "max": 0.71
+      },
+      "examples": ["Polaris Sportsman", "Honda FourTrax", "Can-Am Outlander"]
+    },
+    "utv": {
+      "description": "Utility task vehicle / side-by-side",
+      "height": {
+        "mean": 1.90,
+        "std": 0.15,
+        "min": 1.70,
+        "max": 2.20
+      },
+      "width": {
+        "mean": 1.55,
+        "std": 0.10,
+        "min": 1.40,
+        "max": 1.75
+      },
+      "length": {
+        "mean": 3.00,
+        "std": 0.30,
+        "min": 2.60,
+        "max": 3.60
+      },
+      "wheel_diameter": {
+        "mean": 0.69,
+        "std": 0.05,
+        "min": 0.61,
+        "max": 0.79
+      },
+      "examples": ["Polaris RZR", "John Deere Gator", "Kawasaki Mule"]
+    }
+  },
+  "standard_features": {
+    "license_plate_us": {
+      "description": "Standard US license plate",
+      "width": 0.305,
+      "height": 0.152
+    },
+    "license_plate_eu": {
+      "description": "Standard European license plate",
+      "width": 0.520,
+      "height": 0.110
+    },
+    "headlight_standard": {
+      "description": "Standard round headlight diameter",
+      "diameter": {
+        "mean": 0.18,
+        "std": 0.02,
+        "min": 0.14,
+        "max": 0.22
+      }
+    },
+    "side_mirror": {
+      "description": "Side mirror width",
+      "width": {
+        "mean": 0.20,
+        "std": 0.03,
+        "min": 0.15,
+        "max": 0.28
+      }
+    }
+  },
+  "reliability_notes": {
+    "best_features": ["height", "wheel_diameter"],
+    "reason": "Height and wheel size are most consistent within categories",
+    "length_variability": "Vehicle length varies significantly with model/trim",
+    "viewing_angle": "Height measurements most reliable from side view"
+  }
+}

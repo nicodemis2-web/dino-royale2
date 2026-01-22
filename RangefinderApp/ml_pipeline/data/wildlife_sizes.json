@@ -1,0 +1,491 @@
+{
+  "metadata": {
+    "source": "USFWS, State Wildlife Agencies, Scientific Literature",
+    "description": "North American wildlife dimensions for distance estimation",
+    "units": "meters",
+    "measurement_note": "Heights are shoulder height unless otherwise noted",
+    "last_updated": "2024-01-01"
+  },
+  "species": {
+    "white_tailed_deer": {
+      "common_name": "White-tailed Deer",
+      "scientific_name": "Odocoileus virginianus",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.00,
+          "std": 0.08,
+          "min": 0.85,
+          "max": 1.15
+        },
+        "female": {
+          "mean": 0.90,
+          "std": 0.07,
+          "min": 0.78,
+          "max": 1.02
+        },
+        "combined": {
+          "mean": 0.95,
+          "std": 0.09,
+          "min": 0.78,
+          "max": 1.15
+        }
+      },
+      "body_length": {
+        "mean": 1.80,
+        "std": 0.15,
+        "min": 1.50,
+        "max": 2.10
+      },
+      "head_length": {
+        "mean": 0.30,
+        "std": 0.02,
+        "min": 0.26,
+        "max": 0.34
+      },
+      "reliability": 0.85,
+      "regional_variation": {
+        "northern": "+10%",
+        "southern": "-5%"
+      }
+    },
+    "mule_deer": {
+      "common_name": "Mule Deer",
+      "scientific_name": "Odocoileus hemionus",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.05,
+          "std": 0.08,
+          "min": 0.90,
+          "max": 1.20
+        },
+        "female": {
+          "mean": 0.92,
+          "std": 0.07,
+          "min": 0.80,
+          "max": 1.05
+        },
+        "combined": {
+          "mean": 0.98,
+          "std": 0.10,
+          "min": 0.80,
+          "max": 1.20
+        }
+      },
+      "body_length": {
+        "mean": 1.90,
+        "std": 0.18,
+        "min": 1.55,
+        "max": 2.25
+      },
+      "reliability": 0.85
+    },
+    "elk": {
+      "common_name": "Rocky Mountain Elk",
+      "scientific_name": "Cervus canadensis",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.50,
+          "std": 0.08,
+          "min": 1.35,
+          "max": 1.65
+        },
+        "female": {
+          "mean": 1.30,
+          "std": 0.07,
+          "min": 1.18,
+          "max": 1.42
+        },
+        "combined": {
+          "mean": 1.40,
+          "std": 0.12,
+          "min": 1.18,
+          "max": 1.65
+        }
+      },
+      "body_length": {
+        "mean": 2.50,
+        "std": 0.20,
+        "min": 2.10,
+        "max": 2.90
+      },
+      "head_length": {
+        "mean": 0.45,
+        "std": 0.03,
+        "min": 0.40,
+        "max": 0.50
+      },
+      "reliability": 0.90,
+      "notes": "Size varies by subspecies; Roosevelt elk larger"
+    },
+    "moose": {
+      "common_name": "Moose",
+      "scientific_name": "Alces alces",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.90,
+          "std": 0.12,
+          "min": 1.70,
+          "max": 2.15
+        },
+        "female": {
+          "mean": 1.65,
+          "std": 0.10,
+          "min": 1.50,
+          "max": 1.85
+        },
+        "combined": {
+          "mean": 1.78,
+          "std": 0.18,
+          "min": 1.50,
+          "max": 2.15
+        }
+      },
+      "body_length": {
+        "mean": 2.80,
+        "std": 0.25,
+        "min": 2.40,
+        "max": 3.30
+      },
+      "reliability": 0.88
+    },
+    "pronghorn": {
+      "common_name": "Pronghorn Antelope",
+      "scientific_name": "Antilocapra americana",
+      "shoulder_height": {
+        "male": {
+          "mean": 0.90,
+          "std": 0.05,
+          "min": 0.82,
+          "max": 0.98
+        },
+        "female": {
+          "mean": 0.85,
+          "std": 0.05,
+          "min": 0.78,
+          "max": 0.92
+        },
+        "combined": {
+          "mean": 0.87,
+          "std": 0.06,
+          "min": 0.78,
+          "max": 0.98
+        }
+      },
+      "body_length": {
+        "mean": 1.40,
+        "std": 0.10,
+        "min": 1.25,
+        "max": 1.55
+      },
+      "reliability": 0.88
+    },
+    "wild_boar": {
+      "common_name": "Wild Boar / Feral Hog",
+      "scientific_name": "Sus scrofa",
+      "shoulder_height": {
+        "male": {
+          "mean": 0.85,
+          "std": 0.15,
+          "min": 0.60,
+          "max": 1.10
+        },
+        "female": {
+          "mean": 0.70,
+          "std": 0.12,
+          "min": 0.50,
+          "max": 0.90
+        },
+        "combined": {
+          "mean": 0.75,
+          "std": 0.18,
+          "min": 0.50,
+          "max": 1.10
+        }
+      },
+      "body_length": {
+        "mean": 1.50,
+        "std": 0.25,
+        "min": 1.10,
+        "max": 2.00
+      },
+      "reliability": 0.65,
+      "notes": "High size variability due to diet and genetics"
+    },
+    "black_bear": {
+      "common_name": "Black Bear",
+      "scientific_name": "Ursus americanus",
+      "shoulder_height": {
+        "male": {
+          "mean": 0.95,
+          "std": 0.10,
+          "min": 0.75,
+          "max": 1.10
+        },
+        "female": {
+          "mean": 0.80,
+          "std": 0.08,
+          "min": 0.65,
+          "max": 0.95
+        },
+        "combined": {
+          "mean": 0.88,
+          "std": 0.12,
+          "min": 0.65,
+          "max": 1.10
+        }
+      },
+      "standing_height": {
+        "mean": 1.80,
+        "std": 0.20,
+        "min": 1.50,
+        "max": 2.10
+      },
+      "body_length": {
+        "mean": 1.70,
+        "std": 0.20,
+        "min": 1.40,
+        "max": 2.00
+      },
+      "reliability": 0.70,
+      "notes": "Size varies significantly seasonally"
+    },
+    "grizzly_bear": {
+      "common_name": "Grizzly / Brown Bear",
+      "scientific_name": "Ursus arctos horribilis",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.20,
+          "std": 0.12,
+          "min": 1.00,
+          "max": 1.40
+        },
+        "female": {
+          "mean": 0.95,
+          "std": 0.10,
+          "min": 0.80,
+          "max": 1.15
+        },
+        "combined": {
+          "mean": 1.08,
+          "std": 0.16,
+          "min": 0.80,
+          "max": 1.40
+        }
+      },
+      "standing_height": {
+        "mean": 2.40,
+        "std": 0.30,
+        "min": 2.00,
+        "max": 3.00
+      },
+      "reliability": 0.70
+    },
+    "coyote": {
+      "common_name": "Coyote",
+      "scientific_name": "Canis latrans",
+      "shoulder_height": {
+        "combined": {
+          "mean": 0.58,
+          "std": 0.05,
+          "min": 0.50,
+          "max": 0.68
+        }
+      },
+      "body_length": {
+        "mean": 0.95,
+        "std": 0.10,
+        "min": 0.80,
+        "max": 1.10
+      },
+      "reliability": 0.75
+    },
+    "gray_wolf": {
+      "common_name": "Gray Wolf",
+      "scientific_name": "Canis lupus",
+      "shoulder_height": {
+        "male": {
+          "mean": 0.80,
+          "std": 0.06,
+          "min": 0.70,
+          "max": 0.90
+        },
+        "female": {
+          "mean": 0.72,
+          "std": 0.05,
+          "min": 0.64,
+          "max": 0.80
+        },
+        "combined": {
+          "mean": 0.76,
+          "std": 0.07,
+          "min": 0.64,
+          "max": 0.90
+        }
+      },
+      "body_length": {
+        "mean": 1.40,
+        "std": 0.15,
+        "min": 1.15,
+        "max": 1.65
+      },
+      "reliability": 0.80
+    },
+    "mountain_lion": {
+      "common_name": "Mountain Lion / Cougar",
+      "scientific_name": "Puma concolor",
+      "shoulder_height": {
+        "male": {
+          "mean": 0.75,
+          "std": 0.05,
+          "min": 0.65,
+          "max": 0.85
+        },
+        "female": {
+          "mean": 0.65,
+          "std": 0.05,
+          "min": 0.58,
+          "max": 0.75
+        },
+        "combined": {
+          "mean": 0.70,
+          "std": 0.07,
+          "min": 0.58,
+          "max": 0.85
+        }
+      },
+      "body_length": {
+        "mean": 1.50,
+        "std": 0.20,
+        "min": 1.20,
+        "max": 1.80
+      },
+      "reliability": 0.78
+    },
+    "wild_turkey": {
+      "common_name": "Wild Turkey",
+      "scientific_name": "Meleagris gallopavo",
+      "standing_height": {
+        "male": {
+          "mean": 1.00,
+          "std": 0.10,
+          "min": 0.85,
+          "max": 1.20
+        },
+        "female": {
+          "mean": 0.75,
+          "std": 0.08,
+          "min": 0.65,
+          "max": 0.90
+        },
+        "combined": {
+          "mean": 0.88,
+          "std": 0.15,
+          "min": 0.65,
+          "max": 1.20
+        }
+      },
+      "body_length": {
+        "mean": 1.00,
+        "std": 0.12,
+        "min": 0.80,
+        "max": 1.25
+      },
+      "reliability": 0.65,
+      "notes": "Males (toms) significantly larger than females (hens)"
+    },
+    "canada_goose": {
+      "common_name": "Canada Goose",
+      "scientific_name": "Branta canadensis",
+      "standing_height": {
+        "combined": {
+          "mean": 0.75,
+          "std": 0.08,
+          "min": 0.60,
+          "max": 0.90
+        }
+      },
+      "body_length": {
+        "mean": 0.90,
+        "std": 0.10,
+        "min": 0.75,
+        "max": 1.10
+      },
+      "reliability": 0.70
+    },
+    "bison": {
+      "common_name": "American Bison",
+      "scientific_name": "Bison bison",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.80,
+          "std": 0.10,
+          "min": 1.65,
+          "max": 2.00
+        },
+        "female": {
+          "mean": 1.50,
+          "std": 0.08,
+          "min": 1.38,
+          "max": 1.65
+        },
+        "combined": {
+          "mean": 1.65,
+          "std": 0.18,
+          "min": 1.38,
+          "max": 2.00
+        }
+      },
+      "body_length": {
+        "mean": 3.00,
+        "std": 0.30,
+        "min": 2.50,
+        "max": 3.50
+      },
+      "reliability": 0.85
+    },
+    "bighorn_sheep": {
+      "common_name": "Bighorn Sheep",
+      "scientific_name": "Ovis canadensis",
+      "shoulder_height": {
+        "male": {
+          "mean": 1.00,
+          "std": 0.06,
+          "min": 0.90,
+          "max": 1.10
+        },
+        "female": {
+          "mean": 0.85,
+          "std": 0.05,
+          "min": 0.78,
+          "max": 0.92
+        },
+        "combined": {
+          "mean": 0.92,
+          "std": 0.10,
+          "min": 0.78,
+          "max": 1.10
+        }
+      },
+      "reliability": 0.82
+    },
+    "mountain_goat": {
+      "common_name": "Mountain Goat",
+      "scientific_name": "Oreamnos americanus",
+      "shoulder_height": {
+        "combined": {
+          "mean": 1.00,
+          "std": 0.08,
+          "min": 0.88,
+          "max": 1.15
+        }
+      },
+      "reliability": 0.80
+    }
+  },
+  "detection_tips": {
+    "best_conditions": "Clear day, animal broadside, full body visible",
+    "challenging_conditions": "Partial occlusion, bedded animals, extreme angles",
+    "seasonal_notes": "Winter coats can add 5-10% to apparent size",
+    "age_consideration": "Mature adults preferred; juveniles highly variable"
+  }
+}

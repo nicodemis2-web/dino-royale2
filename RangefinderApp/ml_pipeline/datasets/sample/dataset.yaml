@@ -1,0 +1,24 @@
+# SniperScope Sample Dataset
+# Auto-generated for testing
+
+path: /Users/matthewjohnson/Projects/dino-royale2/RangefinderApp/ml_pipeline/datasets/sample
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: person
+  1: car
+  2: van
+  3: truck
+  4: bus
+  5: motorcycle
+  6: bicycle
+  7: deer
+  8: elk
+  9: wild_boar
+  10: coyote
+  11: bear
+  12: turkey
+
+nc: 13

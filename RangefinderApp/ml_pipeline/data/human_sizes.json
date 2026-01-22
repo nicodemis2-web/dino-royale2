@@ -1,0 +1,245 @@
+{
+  "metadata": {
+    "source": "ANSUR II / CAESAR Anthropometric Databases",
+    "description": "Human body measurements for distance estimation",
+    "units": "meters",
+    "last_updated": "2024-01-01"
+  },
+  "measurements": {
+    "standing_height": {
+      "description": "Full standing height (stature)",
+      "male": {
+        "mean": 1.756,
+        "std": 0.070,
+        "p5": 1.641,
+        "p50": 1.755,
+        "p95": 1.870
+      },
+      "female": {
+        "mean": 1.622,
+        "std": 0.063,
+        "p5": 1.516,
+        "p50": 1.620,
+        "p95": 1.727
+      },
+      "combined": {
+        "mean": 1.700,
+        "std": 0.092,
+        "p5": 1.545,
+        "p50": 1.700,
+        "p95": 1.855
+      }
+    },
+    "shoulder_height": {
+      "description": "Ground to top of shoulder (acromion)",
+      "male": {
+        "mean": 1.445,
+        "std": 0.062,
+        "p5": 1.343,
+        "p50": 1.444,
+        "p95": 1.547
+      },
+      "female": {
+        "mean": 1.330,
+        "std": 0.056,
+        "p5": 1.238,
+        "p50": 1.328,
+        "p95": 1.422
+      },
+      "combined": {
+        "mean": 1.390,
+        "std": 0.080,
+        "p5": 1.258,
+        "p50": 1.390,
+        "p95": 1.522
+      }
+    },
+    "head_height": {
+      "description": "Vertical head length (menton to vertex)",
+      "male": {
+        "mean": 0.234,
+        "std": 0.012,
+        "p5": 0.214,
+        "p50": 0.234,
+        "p95": 0.254
+      },
+      "female": {
+        "mean": 0.221,
+        "std": 0.011,
+        "p5": 0.203,
+        "p50": 0.221,
+        "p95": 0.239
+      },
+      "combined": {
+        "mean": 0.228,
+        "std": 0.013,
+        "p5": 0.206,
+        "p50": 0.228,
+        "p95": 0.250
+      }
+    },
+    "head_width": {
+      "description": "Maximum head breadth",
+      "male": {
+        "mean": 0.156,
+        "std": 0.007,
+        "p5": 0.144,
+        "p50": 0.156,
+        "p95": 0.168
+      },
+      "female": {
+        "mean": 0.148,
+        "std": 0.007,
+        "p5": 0.136,
+        "p50": 0.148,
+        "p95": 0.160
+      },
+      "combined": {
+        "mean": 0.152,
+        "std": 0.008,
+        "p5": 0.138,
+        "p50": 0.152,
+        "p95": 0.166
+      }
+    },
+    "shoulder_width": {
+      "description": "Biacromial breadth",
+      "male": {
+        "mean": 0.404,
+        "std": 0.023,
+        "p5": 0.366,
+        "p50": 0.404,
+        "p95": 0.442
+      },
+      "female": {
+        "mean": 0.361,
+        "std": 0.020,
+        "p5": 0.328,
+        "p50": 0.361,
+        "p95": 0.394
+      },
+      "combined": {
+        "mean": 0.383,
+        "std": 0.030,
+        "p5": 0.333,
+        "p50": 0.383,
+        "p95": 0.433
+      }
+    },
+    "torso_height": {
+      "description": "Shoulder to waist height",
+      "male": {
+        "mean": 0.620,
+        "std": 0.035,
+        "p5": 0.562,
+        "p50": 0.620,
+        "p95": 0.678
+      },
+      "female": {
+        "mean": 0.560,
+        "std": 0.032,
+        "p5": 0.507,
+        "p50": 0.560,
+        "p95": 0.613
+      },
+      "combined": {
+        "mean": 0.590,
+        "std": 0.045,
+        "p5": 0.516,
+        "p50": 0.590,
+        "p95": 0.664
+      }
+    },
+    "arm_span": {
+      "description": "Full arm span (fingertip to fingertip)",
+      "male": {
+        "mean": 1.790,
+        "std": 0.082,
+        "p5": 1.655,
+        "p50": 1.790,
+        "p95": 1.925
+      },
+      "female": {
+        "mean": 1.630,
+        "std": 0.074,
+        "p5": 1.508,
+        "p50": 1.630,
+        "p95": 1.752
+      },
+      "combined": {
+        "mean": 1.710,
+        "std": 0.108,
+        "p5": 1.532,
+        "p50": 1.710,
+        "p95": 1.888
+      }
+    },
+    "sitting_height": {
+      "description": "Seated height (seat to vertex)",
+      "male": {
+        "mean": 0.915,
+        "std": 0.035,
+        "p5": 0.857,
+        "p50": 0.915,
+        "p95": 0.973
+      },
+      "female": {
+        "mean": 0.855,
+        "std": 0.033,
+        "p5": 0.801,
+        "p50": 0.855,
+        "p95": 0.909
+      },
+      "combined": {
+        "mean": 0.885,
+        "std": 0.045,
+        "p5": 0.811,
+        "p50": 0.885,
+        "p95": 0.959
+      }
+    },
+    "kneeling_height": {
+      "description": "Height when kneeling (knee to vertex)",
+      "male": {
+        "mean": 1.280,
+        "std": 0.055,
+        "p5": 1.189,
+        "p50": 1.280,
+        "p95": 1.371
+      },
+      "female": {
+        "mean": 1.180,
+        "std": 0.050,
+        "p5": 1.098,
+        "p50": 1.180,
+        "p95": 1.262
+      },
+      "combined": {
+        "mean": 1.230,
+        "std": 0.070,
+        "p5": 1.115,
+        "p50": 1.230,
+        "p95": 1.345
+      }
+    },
+    "prone_length": {
+      "description": "Length when prone (typical visible profile)",
+      "combined": {
+        "mean": 0.450,
+        "std": 0.050,
+        "p5": 0.368,
+        "p50": 0.450,
+        "p95": 0.532
+      }
+    }
+  },
+  "population_notes": {
+    "ANSUR_II": "US Army personnel, 2012 survey, N=6,068",
+    "CAESAR": "Civilian American and European Surface Anthropometry Resource, N>4,000",
+    "adjustment_factors": {
+      "military_vs_civilian": "Military population tends ~2% taller on average",
+      "regional_variation": "Dutch/Scandinavian +5%, Southeast Asian -8%",
+      "age_variation": "Peak height 20-35, decline ~2cm by age 70"
+    }
+  }
+}
